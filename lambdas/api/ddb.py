@@ -99,3 +99,42 @@ class DeckRepo:
     def release_public(self, token: str) -> None:
         """Idempotent release of a public token reservation."""
         self.delete(dm.public_pk(token))
+
+    def increment_views(self, token: str, day: str) -> None:
+        """Atomically bump total view count and the per-day bucket on the
+        PUBLIC#{token} reservation item.
+
+        This uses TWO UpdateItems on purpose. DynamoDB rejects `ADD` on a
+        nested map path (e.g. `viewsByDay.#d`) when the parent map does not
+        yet exist. So we:
+          1) SET viewsByDay = if_not_exists(viewsByDay, :empty) and ADD to
+             the top-level viewCount in one atomic call, ensuring the map
+             exists after this step.
+          2) ADD viewsByDay.#d :one now that the map is guaranteed present.
+        Each call is atomic; both are monotonic increments, so total and
+        per-day counters can never destructively diverge.
+        """
+        pk = dm.public_pk(token)
+        self._table.update_item(
+            Key={"deckId": pk},
+            UpdateExpression=(
+                "SET viewsByDay = if_not_exists(viewsByDay, :empty) "
+                "ADD viewCount :one"
+            ),
+            ExpressionAttributeValues={":empty": {}, ":one": 1},
+        )
+        self._table.update_item(
+            Key={"deckId": pk},
+            UpdateExpression="ADD viewsByDay.#d :one",
+            ExpressionAttributeNames={"#d": day},
+            ExpressionAttributeValues={":one": 1},
+        )
+
+    def get_views(self, token: str) -> dict:
+        """Read total and per-day view counts for a public token.
+        Missing item/attributes yield total 0 and empty byDay.
+        """
+        item = self.get(dm.public_pk(token)) or {}
+        raw = item.get("viewsByDay") or {}
+        by_day = {k: int(v) for k, v in raw.items()}
+        return {"total": int(item.get("viewCount", 0) or 0), "byDay": by_day}
