@@ -91,6 +91,23 @@ Cognito User Pool (셀프가입 차단, 관리자 사용자 1개) + Hosted UI
 - **알려진 한계(KPI 사용 시 유의)**: 슬랙·카카오톡 링크 프리뷰·검색 크롤러 등 **봇 조회도 포함**
   집계된다(순수 사람 조회수 아님). 세션 기반 중복 제거 없음. 시각은 모두 UTC 기준.
 
+## 재생 하단 네비게이션
+
+- 전체화면 재생(로그인 `/s/{alias}` · 공개 `/p/{token}`) 중 화면 하단에 **이전/다음 버튼과
+  `현재 / 전체` 페이지 표시**가 오버레이된다. 마우스·터치·키 입력 시 나타나고 2.5초 무동작 시
+  자동 숨김된다. 기존 키보드(←/→/Space)·스와이프·ESC 동작은 그대로다.
+- **postMessage 브리지**: 슬라이드는 iframe에 `sandbox="allow-scripts"`로만 격리되며
+  (`allow-same-origin` 미부여 — 토큰·DOM 유출 차단), 부모 뷰어와 슬라이드는 오직 postMessage로
+  통신한다. 덱은 `{type:"slidecast-state", cur, total}`를 방송하고
+  `{type:"slidecast-nav", action:"next"|"prev"|"ping"}`를 받는다. 부모는 `event.source`로만
+  검증한다(origin은 opaque라 미사용).
+- **신규 덱**: html-slide 엔진에 브리지가 내장돼 자동 지원된다.
+- **기존 덱 소급 적용**: `scripts/patch-decks-nav.py`가 S3의 `slides/**`와 `public/{token}/**`
+  HTML에 키보드 이벤트 기반 shim 브리지를 주입한다(멱등, `--dry-run` 지원, strict UTF-8 디코드,
+  업로드 전 무결성 가드, `no-cache` 헤더 설정). shim은 `.slide` 클래스 변경을 MutationObserver로
+  감지해 재방송한다(엔진이 `history.replaceState`를 쓰므로 `hashchange`가 안 뜨는 점을 보완).
+- **폴백**: postMessage 핸드셰이크에 응답하지 않는 덱은 오버레이를 렌더하지 않는다(오작동 버튼 없음).
+
 ## API (요약)
 
 - 덱: `GET /api/decks?status=&group=`, `GET|PUT|DELETE /api/decks/{id}`,

@@ -129,9 +129,13 @@ def process(dry_run: bool) -> int:
             "Key": key,
             "Body": new_body.encode("utf-8"),
             "ContentType": "text/html",
+            # Deck HTML must always revalidate so a re-share or retrofit is
+            # picked up without waiting on a browser cache. Preserve an
+            # explicit existing policy; otherwise default to no-cache
+            # (these objects were stored with no Cache-Control at all,
+            # which lets browsers hold a stale copy past a CF invalidation).
+            "CacheControl": cache_control or "no-cache",
         }
-        if cache_control:
-            put_kwargs["CacheControl"] = cache_control
         s3.put_object(**put_kwargs)
         counts["patch"] += 1
         print(f"patch                 {key}")
