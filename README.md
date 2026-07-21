@@ -1,6 +1,6 @@
 # Slidecast
 
-html-slide로 만든 self-contained HTML 슬라이드 덱을 누적/수정(버전)/삭제하고,
+self-contained HTML 슬라이드 덱을 누적/수정(버전)/삭제하고,
 갤러리에서 선택해 풀스크린으로 재생하는 서버리스 웹 뷰어. 그룹 관리, 짧은 URL
 alias, public 공유(`/p/{token}`), HTML/PDF 다운로드를 지원한다.
 
@@ -76,7 +76,7 @@ Cognito User Pool (셀프가입 차단, 관리자 사용자 1개) + Hosted UI
   썸네일 Lambda가 사전 생성(`pdfs/{deckId}/v{n}.pdf`). 프라이빗 S3 → presigned URL(attachment, 300s)로만
   제공. PDF 미준비면 옵션 비활성. 공개 페이지에는 다운로드 없음(보기 전용).
 
-## 조회 트래킹 (KPI 증빙)
+## 조회 트래킹
 
 - **집계**: 공개 링크(`GET /api/public/{token}`)를 열 때마다 `PUBLIC#{token}` 아이템의
   `viewCount`(총계)와 `viewsByDay`(UTC `YYYY-MM-DD`별 맵)를 단일 UpdateItem으로 원자 증가.
@@ -88,7 +88,7 @@ Cognito User Pool (셀프가입 차단, 관리자 사용자 1개) + Hosted UI
 - **내보내기**: `GET /api/decks/{id}/views/export?format=csv|json`(JWT)이 파일 바디를 직접 반환
   (`Content-Disposition: attachment`). 공유 모달의 "CSV / JSON 내보내기" 버튼으로 다운로드.
   조회 통계·export는 JWT 라우트 전용 — 공개 뷰어에는 노출되지 않는다(공개 응답은 `{title,htmlUrl}`만).
-- **알려진 한계(KPI 사용 시 유의)**: 슬랙·카카오톡 링크 프리뷰·검색 크롤러 등 **봇 조회도 포함**
+- **알려진 한계**: 슬랙·카카오톡 링크 프리뷰·검색 크롤러 등 **봇 조회도 포함**
   집계된다(순수 사람 조회수 아님). 세션 기반 중복 제거 없음. 시각은 모두 UTC 기준.
 
 ## 재생 하단 네비게이션
@@ -101,12 +101,16 @@ Cognito User Pool (셀프가입 차단, 관리자 사용자 1개) + Hosted UI
   통신한다. 덱은 `{type:"slidecast-state", cur, total}`를 방송하고
   `{type:"slidecast-nav", action:"next"|"prev"|"ping"}`를 받는다. 부모는 `event.source`로만
   검증한다(origin은 opaque라 미사용).
-- **신규 덱**: html-slide 엔진에 브리지가 내장돼 자동 지원된다.
+- **신규 업로드**: 업로드 시 슬라이드 HTML에 브리지가 없으면 키보드 이벤트 기반 shim 브리지를
+  자동 주입한다(각 슬라이드가 `.slide` 클래스인 표준 구조를 쓰는 덱 대상, 멱등). 이미 브리지가
+  있는 덱은 그대로 둔다.
 - **기존 덱 소급 적용**: `scripts/patch-decks-nav.py`가 S3의 `slides/**`와 `public/{token}/**`
-  HTML에 키보드 이벤트 기반 shim 브리지를 주입한다(멱등, `--dry-run` 지원, strict UTF-8 디코드,
+  HTML에 동일한 shim 브리지를 주입한다(멱등, `--dry-run` 지원, strict UTF-8 디코드,
   업로드 전 무결성 가드, `no-cache` 헤더 설정). shim은 `.slide` 클래스 변경을 MutationObserver로
-  감지해 재방송한다(엔진이 `history.replaceState`를 쓰므로 `hashchange`가 안 뜨는 점을 보완).
-- **폴백**: postMessage 핸드셰이크에 응답하지 않는 덱은 오버레이를 렌더하지 않는다(오작동 버튼 없음).
+  감지해 재방송하므로, 페이지 전환에 `history.replaceState`를 쓰는(따라서 `hashchange`가 안 뜨는)
+  덱에서도 페이지 표시가 갱신된다.
+- **폴백**: 표준 구조가 아니거나 postMessage 핸드셰이크에 응답하지 않는 덱은 오버레이를 렌더하지
+  않는다(오작동 버튼 없음).
 
 ## API (요약)
 
