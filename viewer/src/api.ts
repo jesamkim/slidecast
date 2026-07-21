@@ -40,9 +40,16 @@ export function createApi(baseUrl: string, getToken: () => string) {
     async getDeck(id: string): Promise<Deck> {
       return j(await fetch(`${baseUrl}/api/decks/${id}`, { headers: auth() }));
     },
-    async createUpload(filename: string, title?: string, tags: string[] = []) {
+    async createUpload(
+      filename: string,
+      title?: string,
+      tags: string[] = [],
+      group?: string | null,
+    ) {
+      const body: Record<string, unknown> = { filename, title, tags };
+      if (group) body.group = group;
       return j(await fetch(`${baseUrl}/api/decks`, {
-        method: "POST", headers: auth(), body: JSON.stringify({ filename, title, tags }),
+        method: "POST", headers: auth(), body: JSON.stringify(body),
       }));
     },
     async updateUpload(id: string) {

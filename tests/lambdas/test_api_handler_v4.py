@@ -219,3 +219,77 @@ def test_delete_share_path_does_not_archive_deck(monkeypatch):
     r = h.handler(_evt("DELETE", "/api/decks/a/share", pp={"id": "a"}))
     assert r["statusCode"] == 200
     assert repo.get("a")["status"] == "active"
+
+
+@mock_aws
+def test_post_decks_with_existing_group_assigns_deck(monkeypatch):
+    res = boto3.resource("dynamodb", region_name="us-east-1")
+    s3 = boto3.client("s3", region_name="us-east-1")
+    _setup(res, s3)
+    monkeypatch.setenv("TABLE_NAME", TABLE); monkeypatch.setenv("BUCKET_NAME", BUCKET)
+    import handler as h; importlib.reload(h)
+    from ddb import DeckRepo
+    import deck_model as dm
+    repo = DeckRepo(TABLE, res)
+    repo.put(dm.new_group_item("marketing", "Marketing", "t0"))
+
+    r = h.handler(_evt("POST", "/api/decks", body={"filename": "brief.html", "title": "Brief", "group": "marketing"}))
+    assert r["statusCode"] == 200
+    deck_id = json.loads(r["body"])["deckId"]
+    assert repo.get(deck_id)["group"] == "marketing"
+
+
+@mock_aws
+def test_post_decks_with_ghost_group_ignores_and_leaves_unassigned(monkeypatch):
+    res = boto3.resource("dynamodb", region_name="us-east-1")
+    s3 = boto3.client("s3", region_name="us-east-1")
+    _setup(res, s3)
+    monkeypatch.setenv("TABLE_NAME", TABLE); monkeypatch.setenv("BUCKET_NAME", BUCKET)
+    import handler as h; importlib.reload(h)
+    from ddb import DeckRepo
+    repo = DeckRepo(TABLE, res)
+
+    r = h.handler(_evt("POST", "/api/decks", body={"filename": "brief.html", "group": "ghost"}))
+    assert r["statusCode"] == 200
+    deck_id = json.loads(r["body"])["deckId"]
+    assert repo.get(deck_id).get("group") is None
+
+
+@mock_aws
+def test_post_decks_without_group_is_unassigned(monkeypatch):
+    res = boto3.resource("dynamodb", region_name="us-east-1")
+    s3 = boto3.client("s3", region_name="us-east-1")
+    _setup(res, s3)
+    monkeypatch.setenv("TABLE_NAME", TABLE); monkeypatch.setenv("BUCKET_NAME", BUCKET)
+    import handler as h; importlib.reload(h)
+    from ddb import DeckRepo
+    repo = DeckRepo(TABLE, res)
+
+    r = h.handler(_evt("POST", "/api/decks", body={"filename": "brief.html"}))
+    assert r["statusCode"] == 200
+    deck_id = json.loads(r["body"])["deckId"]
+    assert repo.get(deck_id).get("group") is None
+
+
+@mock_aws
+def test_post_decks_reupload_does_not_change_group(monkeypatch):
+    """Re-uploading an existing deck (new version) must respect its filed group."""
+    res = boto3.resource("dynamodb", region_name="us-east-1")
+    s3 = boto3.client("s3", region_name="us-east-1")
+    _setup(res, s3)
+    monkeypatch.setenv("TABLE_NAME", TABLE); monkeypatch.setenv("BUCKET_NAME", BUCKET)
+    import handler as h; importlib.reload(h)
+    from ddb import DeckRepo
+    import deck_model as dm
+    repo = DeckRepo(TABLE, res)
+    repo.put(dm.new_group_item("sales", "Sales", "t0"))
+    repo.put(dm.new_group_item("marketing", "Marketing", "t0"))
+    # Seed an existing deck already filed under "sales".
+    item = dm.new_deck_item("brief-html", "Brief", [], "t0")
+    item = dm.set_group(item, "sales", "t0")
+    item = dm.add_pending_version(item, 1, "t1")
+    repo.put(item)
+
+    r = h.handler(_evt("POST", "/api/decks", body={"filename": "brief.html", "group": "marketing"}))
+    assert r["statusCode"] == 200
+    assert repo.get("brief-html")["group"] == "sales"

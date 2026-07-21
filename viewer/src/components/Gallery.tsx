@@ -61,7 +61,9 @@ export function Gallery({ api, onLogout }: GalleryProps) {
 
   const upload = async (file: File) => {
     const title = file.name.replace(/\.html?$/i, "");
-    const { uploadUrl } = await api.createUpload(file.name, title);
+    const g =
+      selectedGroup && selectedGroup !== "__unassigned__" ? selectedGroup : undefined;
+    const { uploadUrl } = await api.createUpload(file.name, title, [], g);
     await api.uploadFile(uploadUrl, file);
     setTimeout(() => {
       void reload();

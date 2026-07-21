@@ -143,6 +143,68 @@ describe("Gallery", () => {
     expect(pdfBtn.title).toBe("PDF 생성 중");
   });
 
+  it("upload passes the selected real group to createUpload", async () => {
+    const api = makeApi([], {
+      listGroups: vi.fn().mockResolvedValue([{ groupId: "mkt", name: "Marketing" }]),
+      createUpload: vi.fn().mockResolvedValue({ uploadUrl: "https://u/1", deckId: "x", version: 1 }),
+      uploadFile: vi.fn().mockResolvedValue(undefined),
+    });
+    render(<Gallery api={api} onLogout={() => {}} />);
+    await waitFor(() => expect(screen.getByText("Marketing")).toBeTruthy());
+
+    fireEvent.click(screen.getByText("Marketing"));
+    await waitFor(() => expect(api.listDecks).toHaveBeenCalledWith("active", "mkt"));
+
+    const file = new File(["<html/>"], "brief.html", { type: "text/html" });
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+    fireEvent.change(input, { target: { files: [file] } });
+
+    await waitFor(() =>
+      expect(api.createUpload).toHaveBeenCalledWith("brief.html", "brief", [], "mkt"),
+    );
+  });
+
+  it("upload does not send __unassigned__ sentinel as a group id", async () => {
+    const api = makeApi([], {
+      listGroups: vi.fn().mockResolvedValue([{ groupId: "mkt", name: "Marketing" }]),
+      createUpload: vi.fn().mockResolvedValue({ uploadUrl: "https://u/1", deckId: "x", version: 1 }),
+      uploadFile: vi.fn().mockResolvedValue(undefined),
+    });
+    render(<Gallery api={api} onLogout={() => {}} />);
+    await waitFor(() => expect(screen.getByText("미분류")).toBeTruthy());
+
+    fireEvent.click(screen.getByText("미분류"));
+    await waitFor(() =>
+      expect(api.listDecks).toHaveBeenCalledWith("active", "__unassigned__"),
+    );
+
+    const file = new File(["<html/>"], "brief.html", { type: "text/html" });
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+    fireEvent.change(input, { target: { files: [file] } });
+
+    await waitFor(() =>
+      expect(api.createUpload).toHaveBeenCalledWith("brief.html", "brief", [], undefined),
+    );
+  });
+
+  it("upload with no group selected calls createUpload with undefined group", async () => {
+    const api = makeApi([], {
+      createUpload: vi.fn().mockResolvedValue({ uploadUrl: "https://u/1", deckId: "x", version: 1 }),
+      uploadFile: vi.fn().mockResolvedValue(undefined),
+    });
+    render(<Gallery api={api} onLogout={() => {}} />);
+    // Wait for initial listDecks (no group).
+    await waitFor(() => expect(api.listDecks).toHaveBeenCalledWith("active", undefined));
+
+    const file = new File(["<html/>"], "brief.html", { type: "text/html" });
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+    fireEvent.change(input, { target: { files: [file] } });
+
+    await waitFor(() =>
+      expect(api.createUpload).toHaveBeenCalledWith("brief.html", "brief", [], undefined),
+    );
+  });
+
   it("renders group sidebar and matches alias in search", async () => {
     const aliased = { ...alpha, deckId: "c", title: "Roadmap", alias: "road" };
     const api = makeApi([aliased], {

@@ -291,6 +291,14 @@ def handler(event, context=None):
         now = now_iso()
         if item is None:
             item = dm.new_deck_item(deck_id, body.get("title", deck_id), body.get("tags", []), now)
+            # Assign to the caller's selected group on FIRST upload only.
+            # Re-uploads (existing item) must not overwrite the deck's current
+            # group — the user may have already filed it elsewhere. Unknown
+            # group ids are ignored (leave unassigned); don't 400 an upload
+            # over a stale sidebar selection.
+            group = body.get("group")
+            if group and repo.get(dm.group_pk(group)) is not None:
+                item = dm.set_group(item, group, now)
         n = dm.next_version(item)
         # API owns version creation: persist the pending version BEFORE
         # returning the presigned URL, so a deck without a completed thumbnail
