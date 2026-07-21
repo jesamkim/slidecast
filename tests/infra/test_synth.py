@@ -35,6 +35,11 @@ def test_cognito_self_signup_disabled():
     })
 
 
+def test_cognito_hosted_ui_domain_exists():
+    t = _template()
+    assert t.find_resources("AWS::Cognito::UserPoolDomain") != {}
+
+
 def test_no_public_ingress_alb():
     t = _template()
     assert t.find_resources("AWS::ElasticLoadBalancingV2::LoadBalancer") == {}

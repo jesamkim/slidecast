@@ -60,6 +60,18 @@ class SlidecastStack(Stack):
             generate_secret=False,
         )
 
+        # Hosted UI domain. Prefix must be globally unique per region; account id
+        # is used to keep it stable across redeploys. Callback URLs for the client
+        # are intentionally left unset here because the CloudFront domain is not
+        # known at synth time; configure them post-deploy via the AWS console or
+        # a follow-up script once DistributionDomain is available.
+        user_pool_domain = user_pool.add_domain(
+            "HostedUiDomain",
+            cognito_domain=cognito.CognitoDomainOptions(
+                domain_prefix=f"slidecast-{self.account}",
+            ),
+        )
+
         shared_layer = lambda_.LayerVersion(
             self, "SharedLayer",
             code=lambda_.Code.from_asset(shared_layer_path),
@@ -134,3 +146,4 @@ class SlidecastStack(Stack):
         CfnOutput(self, "UserPoolId", value=user_pool.user_pool_id)
         CfnOutput(self, "UserPoolClientId", value=user_pool_client.user_pool_client_id)
         CfnOutput(self, "BucketName", value=bucket.bucket_name)
+        CfnOutput(self, "CognitoDomain", value=user_pool_domain.domain_name)
