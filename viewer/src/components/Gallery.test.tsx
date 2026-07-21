@@ -5,6 +5,7 @@ import { Gallery } from "./Gallery";
 const makeApi = (decks: any[], overrides: Record<string, any> = {}) =>
   ({
     listDecks: vi.fn().mockResolvedValue(decks),
+    listGroups: vi.fn().mockResolvedValue([]),
     restore: vi.fn().mockResolvedValue({}),
     ...overrides,
   }) as any;
@@ -20,6 +21,8 @@ const alpha = {
   ],
   createdAt: "t",
   updatedAt: "t",
+  group: null,
+  alias: null,
 };
 
 describe("Gallery", () => {
@@ -27,7 +30,7 @@ describe("Gallery", () => {
     const api = makeApi([alpha]);
     render(<Gallery api={api} onLogout={() => {}} />);
     await waitFor(() => expect(screen.getByText("Alpha")).toBeTruthy());
-    expect(api.listDecks).toHaveBeenCalledWith("active");
+    expect(api.listDecks).toHaveBeenCalledWith("active", undefined);
   });
 
   it("matches a query against tags, not just the title", async () => {
@@ -55,7 +58,9 @@ describe("Gallery", () => {
 
     // Switch to the archived view.
     fireEvent.click(screen.getByRole("button", { name: "보관함" }));
-    await waitFor(() => expect(api.listDecks).toHaveBeenCalledWith("archived"));
+    await waitFor(() =>
+      expect(api.listDecks).toHaveBeenCalledWith("archived", undefined),
+    );
     await waitFor(() => expect(screen.getByText("Alpha")).toBeTruthy());
 
     const restoreBtn = await screen.findByRole("button", { name: "복원" });
@@ -80,5 +85,24 @@ describe("Gallery", () => {
     expect(imgs.some((i) => (i.getAttribute("src") ?? "").includes("null"))).toBe(false);
     // The placeholder copy is shown instead.
     expect(screen.getByText("생성 중...")).toBeTruthy();
+  });
+
+  it("renders group sidebar and matches alias in search", async () => {
+    const aliased = { ...alpha, deckId: "c", title: "Roadmap", alias: "road" };
+    const api = makeApi([aliased], {
+      listGroups: vi.fn().mockResolvedValue([
+        { groupId: "mkt", name: "Marketing" },
+      ]),
+    });
+    render(<Gallery api={api} onLogout={() => {}} />);
+
+    await waitFor(() => expect(screen.getAllByText("Marketing").length).toBeGreaterThan(0));
+    await waitFor(() => expect(screen.getByText("Roadmap")).toBeTruthy());
+
+    // Alias-only query keeps the deck visible.
+    fireEvent.change(screen.getByPlaceholderText("검색"), {
+      target: { value: "road" },
+    });
+    expect(screen.getByText("Roadmap")).toBeTruthy();
   });
 });

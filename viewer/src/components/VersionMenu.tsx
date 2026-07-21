@@ -1,4 +1,5 @@
 import type { Deck } from "../types";
+import { formatDate } from "../format";
 
 export function VersionMenu({
   deck,
@@ -84,7 +85,7 @@ export function VersionMenu({
                   )}
                 </div>
                 <div style={{ color: "var(--text-dim)", fontSize: 12, marginTop: 4 }}>
-                  {v.createdAt}
+                  {formatDate(v.createdAt)}
                 </div>
               </div>
               <button
