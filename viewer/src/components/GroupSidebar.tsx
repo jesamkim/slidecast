@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type { Group } from "../types";
 
 export interface GroupSidebarProps {
@@ -21,6 +21,7 @@ export function GroupSidebar({
 }: GroupSidebarProps) {
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState("");
+  const submittingRef = useRef(false);
 
   const submit = async () => {
     const trimmed = name.trim();
@@ -28,9 +29,15 @@ export function GroupSidebar({
       setCreating(false);
       return;
     }
-    await onCreate(trimmed);
-    setName("");
-    setCreating(false);
+    if (submittingRef.current) return;
+    submittingRef.current = true;
+    try {
+      await onCreate(trimmed);
+      setName("");
+      setCreating(false);
+    } finally {
+      submittingRef.current = false;
+    }
   };
 
   const selKey = selected === null ? ALL : selected;
