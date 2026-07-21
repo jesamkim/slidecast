@@ -142,6 +142,8 @@ def test_republish_copies_current_version(monkeypatch):
     r = h.handler(_evt("POST", "/api/decks/a/share/republish", pp={"id": "a"}))
     assert r["statusCode"] == 200
     assert s3.get_object(Bucket=BUCKET, Key=f"public/{tok}/index.html")["Body"].read() == b"<html>v2</html>"
+    # reservation publicVersion updated to current version (unconditional put)
+    assert repo.get(dm.public_pk(tok))["publicVersion"] == 2
 
     # republish without share -> 400
     _seed(res, s3, deck_id="b", title="B")

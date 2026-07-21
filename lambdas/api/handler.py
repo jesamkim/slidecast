@@ -185,7 +185,9 @@ def handler(event, context=None):
             CopySource={"Bucket": _bucket(), "Key": dm.slide_key(item["deckId"], n)},
             Key=f"public/{token}/index.html", ContentType="text/html",
         )
-        repo.reserve_public(token, item["deckId"], n, now_iso())
+        # Unconditional overwrite: the reservation already exists, so a
+        # conditional reserve_public would no-op and leave publicVersion stale.
+        repo.put(dm.new_public_reservation(token, item["deckId"], n, now_iso()))
         return _resp(200, {"ok": True})
 
     if method == "PUT" and path.endswith("/share"):
