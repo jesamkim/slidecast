@@ -2,6 +2,7 @@
 profile2 credentials directly (no API auth needed)."""
 import argparse
 import os
+import secrets
 import sys
 from datetime import datetime, timezone
 
@@ -134,16 +135,67 @@ def soft_delete(deck_id, table=DEFAULT_TABLE, dynamodb=None):
     repo.put(dm.set_status(item, "archived", now_iso()))
 
 
+def _delete_prefix(s3, bucket: str, prefix: str) -> None:
+    listed = s3.list_objects_v2(Bucket=bucket, Prefix=prefix)
+    keys = [{"Key": o["Key"]} for o in listed.get("Contents", [])]
+    if keys:
+        s3.delete_objects(Bucket=bucket, Delete={"Objects": keys})
+
+
+def share(deck_id, table=DEFAULT_TABLE, bucket=None, dynamodb=None, s3=None) -> str:
+    bucket = bucket or os.environ["BUCKET_NAME"]
+    s3 = s3 or boto3.client("s3")
+    repo = DeckRepo(table, dynamodb or boto3.resource("dynamodb"))
+    item = repo.get(deck_id)
+    if not item:
+        raise SystemExit(f"deck not found: {deck_id}")
+    existing = item.get("publicToken")
+    if existing:
+        return f"/p/{existing}"
+    n = item.get("currentVersion")
+    while True:
+        token = secrets.token_urlsafe(12)
+        if repo.reserve_public(token, deck_id, n, now_iso()):
+            break
+    s3.copy_object(
+        Bucket=bucket,
+        Key=f"public/{token}/index.html",
+        CopySource={"Bucket": bucket, "Key": dm.slide_key(deck_id, n)},
+        MetadataDirective="REPLACE",
+        ContentType="text/html",
+        CacheControl="public, max-age=31536000, immutable",
+    )
+    repo.put(dm.set_public_token(item, token, now_iso()))
+    return f"/p/{token}"
+
+
+def unshare(deck_id, table=DEFAULT_TABLE, bucket=None, dynamodb=None, s3=None) -> None:
+    bucket = bucket or os.environ["BUCKET_NAME"]
+    s3 = s3 or boto3.client("s3")
+    repo = DeckRepo(table, dynamodb or boto3.resource("dynamodb"))
+    item = repo.get(deck_id)
+    if not item:
+        raise SystemExit(f"deck not found: {deck_id}")
+    token = item.get("publicToken")
+    if token:
+        _delete_prefix(s3, bucket, f"public/{token}/")
+        repo.release_public(token)
+    repo.put(dm.set_public_token(item, None, now_iso()))
+
+
 def hard_delete(deck_id, table=DEFAULT_TABLE, bucket=None, dynamodb=None, s3=None):
     bucket = bucket or os.environ["BUCKET_NAME"]
     s3 = s3 or boto3.client("s3")
     repo = DeckRepo(table, dynamodb or boto3.resource("dynamodb"))
-    for prefix in (f"slides/{deck_id}/", f"thumbnails/{deck_id}/"):
-        listed = s3.list_objects_v2(Bucket=bucket, Prefix=prefix)
-        keys = [{"Key": o["Key"]} for o in listed.get("Contents", [])]
-        if keys:
-            s3.delete_objects(Bucket=bucket, Delete={"Objects": keys})
     item = repo.get(deck_id)
+    prefixes = [f"slides/{deck_id}/", f"thumbnails/{deck_id}/", f"pdfs/{deck_id}/"]
+    token = item.get("publicToken") if item else None
+    if token:
+        prefixes.append(f"public/{token}/")
+    for prefix in prefixes:
+        _delete_prefix(s3, bucket, prefix)
+    if token:
+        repo.release_public(token)
     if item and item.get("alias"):
         repo.release_alias(item["alias"])
     repo.delete(deck_id)
@@ -161,6 +213,8 @@ def main():
     ap.add_argument("--rollback", nargs=2, metavar=("DECK", "N"))
     ap.add_argument("--delete", metavar="DECK")
     ap.add_argument("--hard", action="store_true")
+    ap.add_argument("--share", metavar="DECK")
+    ap.add_argument("--unshare", metavar="DECK")
     a = ap.parse_args()
     table = os.environ.get("SLIDECAST_TABLE", DEFAULT_TABLE)
     if a.rollback:
@@ -171,6 +225,13 @@ def main():
             hard_delete(a.delete, table)
         else:
             soft_delete(a.delete, table)
+        return
+    if a.share:
+        print(share(a.share, table))
+        return
+    if a.unshare:
+        unshare(a.unshare, table)
+        print(f"unshared: {a.unshare}")
         return
     if a.new_group:
         gid = new_group(a.new_group, table)
