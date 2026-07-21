@@ -21,6 +21,11 @@ export interface Deck {
   group: string | null;
   alias: string | null;
   publicToken: string | null;
+  viewCount?: number;
+}
+export interface ViewStats {
+  total: number;
+  byDay: { date: string; count: number }[];
 }
 export interface Group {
   groupId: string;

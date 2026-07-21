@@ -76,6 +76,22 @@ describe("api client", () => {
     expect(opts.headers.Authorization).toBe("Bearer TOKEN");
   });
 
+  it("getViews GETs /api/decks/{id}/views with bearer and parses {total,byDay}", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true, json: async () => ({ total: 5, byDay: [{ date: "2026-07-20", count: 3 }, { date: "2026-07-21", count: 2 }] }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const api = createApi("", () => "TOKEN");
+    const stats = await api.getViews("d1");
+    expect(stats.total).toBe(5);
+    expect(stats.byDay).toHaveLength(2);
+    expect(stats.byDay[0].date).toBe("2026-07-20");
+    expect(stats.byDay[0].count).toBe(3);
+    const [url, opts] = fetchMock.mock.calls[0];
+    expect(url).toBe("/api/decks/d1/views");
+    expect(opts.headers.Authorization).toBe("Bearer TOKEN");
+  });
+
   it("fetchPublic hits /api/public/{token} WITHOUT Authorization header", async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true, json: async () => ({ title: "T", htmlUrl: "https://s3/h" }),

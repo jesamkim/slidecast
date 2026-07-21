@@ -1,4 +1,4 @@
-import type { Deck, Group, PublicDeck } from "./types";
+import type { Deck, Group, PublicDeck, ViewStats } from "./types";
 
 export function createApi(baseUrl: string, getToken: () => string) {
   const auth = () => ({ Authorization: `Bearer ${getToken()}`, "Content-Type": "application/json" });
@@ -82,6 +82,19 @@ export function createApi(baseUrl: string, getToken: () => string) {
       const q = new URLSearchParams({ format });
       if (version != null) q.set("version", String(version));
       return j(await fetch(`${baseUrl}/api/decks/${id}/download?${q}`, { headers: auth() }));
+    },
+    async getViews(id: string): Promise<ViewStats> {
+      return j(await fetch(`${baseUrl}/api/decks/${id}/views`, { headers: auth() }));
+    },
+    async downloadViews(id: string, format: "csv" | "json") {
+      const r = await fetch(`${baseUrl}/api/decks/${id}/views/export?format=${format}`, { headers: auth() });
+      if (!r.ok) throw new Error(`export ${r.status}`);
+      const blob = await r.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url; a.download = `${id}-views.${format}`;
+      document.body.appendChild(a); a.click(); a.remove();
+      URL.revokeObjectURL(url);
     },
     async uploadFile(url: string, file: Blob) {
       const r = await fetch(url, { method: "PUT", headers: { "Content-Type": "text/html" }, body: file });
