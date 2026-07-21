@@ -1,7 +1,7 @@
 import os, sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "infra"))
 from aws_cdk import App
-from aws_cdk.assertions import Template
+from aws_cdk.assertions import Template, Match
 from slidecast.slidecast_stack import SlidecastStack
 
 
@@ -24,7 +24,9 @@ def test_has_private_bucket():
 def test_dynamodb_has_gsi():
     t = _template()
     t.has_resource_properties("AWS::DynamoDB::Table", {
-        "GlobalSecondaryIndexes": [{"IndexName": "byUpdatedAt"}],
+        "GlobalSecondaryIndexes": Match.array_with([
+            Match.object_like({"IndexName": "byUpdatedAt"}),
+        ]),
     })
 
 

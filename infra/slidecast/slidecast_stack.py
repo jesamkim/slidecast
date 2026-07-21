@@ -60,6 +60,13 @@ class SlidecastStack(Stack):
             partition_key=ddb.Attribute(name="status", type=ddb.AttributeType.STRING),
             sort_key=ddb.Attribute(name="updatedAt", type=ddb.AttributeType.STRING),
         )
+        # Sparse GSI on the human-friendly alias. Only decks that set
+        # the `alias` attribute are projected into the index, which is
+        # what makes /api/resolve/{alias} a cheap point-lookup.
+        table.add_global_secondary_index(
+            index_name="byAlias",
+            partition_key=ddb.Attribute(name="alias", type=ddb.AttributeType.STRING),
+        )
 
         user_pool = cognito.UserPool(
             self, "UserPool",
@@ -156,6 +163,23 @@ class SlidecastStack(Stack):
                 path=route_path,
                 methods=[apigw.HttpMethod.ANY],
                 integration=api_integration,
+            )
+
+        # v2: groups, per-deck group/alias binding, and public alias resolve.
+        # Each route gets a unique HttpLambdaIntegration id (CDK requires it)
+        # but all point to the same api_fn under the same JWT authorizer.
+        for rk in (
+            "/api/groups",
+            "/api/groups/{groupId}",
+            "/api/decks/{id}/group",
+            "/api/decks/{id}/alias",
+            "/api/resolve/{alias}",
+        ):
+            int_id = "Int" + rk.replace("/", "_").replace("{", "").replace("}", "")
+            http_api.add_routes(
+                path=rk,
+                methods=[apigw.HttpMethod.ANY],
+                integration=integrations.HttpLambdaIntegration(int_id, api_fn),
             )
 
         oac = cf.S3OriginAccessControl(self, "Oac")
