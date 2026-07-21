@@ -98,7 +98,12 @@ def process(dry_run: bool) -> int:
             print(f"unsupported (non-utf8) {key}  ({e})")
             continue
 
-        if MARKER in body:
+        # Skip if a bridge is already present in ANY form. Both the shim
+        # (with MARKER) and the native bridge that newer html-slide engines
+        # embed reference the "slidecast-nav" message type, so its mere
+        # presence means a bridge is wired. Patching again would inject a
+        # second bridge that double-broadcasts and double-advances.
+        if "slidecast-nav" in body:
             counts["skip"] += 1
             print(f"skip-already-patched  {key}")
             continue
