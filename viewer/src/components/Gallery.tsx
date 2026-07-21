@@ -114,7 +114,10 @@ export function Gallery({ api, onLogout }: GalleryProps) {
       const a = document.createElement("a");
       a.href = downloadUrl;
       a.rel = "noopener";
+      // Some browsers ignore clicks on anchors that aren't in the DOM.
+      document.body.appendChild(a);
       a.click();
+      a.remove();
     } catch (err) {
       console.error("download failed:", err);
       alert("다운로드 실패");

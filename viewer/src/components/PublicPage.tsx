@@ -6,7 +6,7 @@ type State =
   | { kind: "loading" }
   | { kind: "ok"; deck: PublicDeck }
   | { kind: "not-found" }
-  | { kind: "error"; message: string };
+  | { kind: "error" };
 
 export function PublicPage({ token, baseUrl }: { token: string; baseUrl: string }) {
   const [state, setState] = useState<State>({ kind: "loading" });
@@ -21,7 +21,7 @@ export function PublicPage({ token, baseUrl }: { token: string; baseUrl: string 
         if (cancelled) return;
         const msg = err instanceof Error ? err.message : String(err);
         if (msg.includes("404")) setState({ kind: "not-found" });
-        else setState({ kind: "error", message: msg });
+        else setState({ kind: "error" });
       }
     })();
     return () => {
@@ -64,9 +64,24 @@ export function PublicPage({ token, baseUrl }: { token: string; baseUrl: string 
 
   if (state.kind === "error") {
     return (
-      <div style={{ display: "grid", placeItems: "center", height: "100%", padding: 24 }}>
-        <div style={{ color: "var(--text-dim)", fontSize: 14 }}>
-          불러오지 못했습니다: {state.message}
+      <div
+        style={{
+          display: "grid",
+          placeItems: "center",
+          height: "100%",
+          padding: 24,
+        }}
+      >
+        <div style={{ textAlign: "center", maxWidth: 520 }}>
+          <div
+            className="grad-text"
+            style={{ fontSize: 44, fontWeight: 800, letterSpacing: "-0.03em" }}
+          >
+            불러오기 실패
+          </div>
+          <p style={{ color: "var(--text-dim)", marginTop: 16, fontSize: 16 }}>
+            슬라이드를 불러오지 못했습니다. 링크가 만료되었거나 잘못되었을 수 있습니다.
+          </p>
         </div>
       </div>
     );
