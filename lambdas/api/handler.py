@@ -123,6 +123,10 @@ def handler(event, context=None):
         if raw is None:
             repo.put(dm.set_alias(item, None, now_iso()))
             return _resp(200, {"ok": True})
+        # slugify("") returns the "deck" fallback, so an empty/whitespace
+        # alias would silently be accepted. Reject up front.
+        if not isinstance(raw, str) or not raw.strip():
+            return _resp(400, {"error": "empty alias"})
         alias = slugify(raw)
         if not dm.is_valid_alias(alias):
             return _resp(400, {"error": "invalid or reserved alias"})

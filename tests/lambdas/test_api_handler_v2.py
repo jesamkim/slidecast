@@ -80,3 +80,24 @@ def test_alias_set_conflict_reserved_and_resolve(monkeypatch):
     r = h.handler(_evt("GET", "/api/resolve/road-map", pp={"alias": "road-map"}))
     assert r["statusCode"] == 200 and json.loads(r["body"])["deckId"] == "a"
     assert h.handler(_evt("GET", "/api/resolve/none", pp={"alias": "none"}))["statusCode"] == 404
+
+
+@mock_aws
+def test_alias_empty_string_rejected(monkeypatch):
+    res = boto3.resource("dynamodb", region_name="us-east-1")
+    s3 = boto3.client("s3", region_name="us-east-1")
+    _setup(res, s3)
+    monkeypatch.setenv("TABLE_NAME", TABLE); monkeypatch.setenv("BUCKET_NAME", BUCKET)
+    import handler as h; importlib.reload(h)
+    from ddb import DeckRepo
+    from deck_model import new_deck_item, add_version
+    repo = DeckRepo(TABLE, res)
+    repo.put(add_version(new_deck_item("a", "A", [], "t"), "k", 1, "t1"))
+    # Empty string must not be accepted (would slugify to "deck").
+    r = h.handler(_evt("PUT", "/api/decks/a/alias", {"alias": ""}, pp={"id": "a"}))
+    assert r["statusCode"] == 400
+    assert repo.get("a").get("alias") is None
+    # Whitespace-only must also 400.
+    r = h.handler(_evt("PUT", "/api/decks/a/alias", {"alias": "   "}, pp={"id": "a"}))
+    assert r["statusCode"] == 400
+    assert repo.get("a").get("alias") is None
