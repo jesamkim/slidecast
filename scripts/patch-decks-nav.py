@@ -84,7 +84,13 @@ def process(dry_run: bool) -> int:
     for key in keys:
         head = s3.head_object(Bucket=bucket, Key=key)
         cache_control = head.get("CacheControl")
-        body = s3.get_object(Bucket=bucket, Key=key)["Body"].read().decode("utf-8", errors="replace")
+        raw = s3.get_object(Bucket=bucket, Key=key)["Body"].read()
+        try:
+            body = raw.decode("utf-8", errors="strict")
+        except UnicodeDecodeError as e:
+            counts["unsupported"] += 1
+            print(f"unsupported (non-utf8) {key}  ({e})")
+            continue
 
         if MARKER in body:
             counts["skip"] += 1
@@ -100,6 +106,11 @@ def process(dry_run: bool) -> int:
         if not is_valid_html(new_body):
             counts["invalid"] += 1
             print(f"invalid-skip          {key}")
+            continue
+
+        if new_body == body or MARKER not in new_body:
+            counts["invalid"] += 1
+            print(f"invalid-noop          {key}")
             continue
 
         if dry_run:
