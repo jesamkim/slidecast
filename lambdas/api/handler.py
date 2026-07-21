@@ -1,5 +1,7 @@
 import json
 import os
+import re
+import secrets
 from datetime import datetime, timezone
 from decimal import Decimal
 
@@ -65,6 +67,14 @@ def _body(event):
 
 def _pid(event):
     return (event.get("pathParameters") or {}).get("id")
+
+
+def _delete_prefix(prefix: str) -> None:
+    s3 = _s3()
+    listed = s3.list_objects_v2(Bucket=_bucket(), Prefix=prefix)
+    keys = [{"Key": o["Key"]} for o in listed.get("Contents", [])]
+    if keys:
+        s3.delete_objects(Bucket=_bucket(), Delete={"Objects": keys})
 
 
 def handler(event, context=None):
@@ -150,6 +160,89 @@ def handler(event, context=None):
         repo.put(dm.set_alias(item, alias, now))
         return _resp(200, {"ok": True})
 
+    # --- public resolve (unauthenticated at APIGW) ---
+    if method == "GET" and "/api/public/" in path:
+        token = (event.get("pathParameters") or {}).get("token") or path.rsplit("/", 1)[-1]
+        res = repo.get(dm.public_pk(token))
+        if not res:
+            return _resp(404, {"error": "not found"})
+        owner = repo.get(res["ownerDeckId"])
+        if not owner:
+            return _resp(404, {"error": "not found"})
+        return _resp(200, {"title": owner.get("title", ""), "htmlUrl": f"/public/{token}/index.html"})
+
+    # --- share / republish / unshare (must precede generic PUT/POST/DELETE) ---
+    if method == "POST" and path.endswith("/share/republish"):
+        item = repo.get(_pid(event))
+        if not item:
+            return _resp(404, {"error": "not found"})
+        token = item.get("publicToken")
+        if not token:
+            return _resp(400, {"error": "not shared"})
+        n = item["currentVersion"]
+        _s3().copy_object(
+            Bucket=_bucket(),
+            CopySource={"Bucket": _bucket(), "Key": dm.slide_key(item["deckId"], n)},
+            Key=f"public/{token}/index.html", ContentType="text/html",
+        )
+        repo.reserve_public(token, item["deckId"], n, now_iso())
+        return _resp(200, {"ok": True})
+
+    if method == "PUT" and path.endswith("/share"):
+        item = repo.get(_pid(event))
+        if not item:
+            return _resp(404, {"error": "not found"})
+        existing = item.get("publicToken")
+        if existing:
+            return _resp(200, {"token": existing, "url": f"/p/{existing}"})
+        n = item["currentVersion"]
+        token = secrets.token_urlsafe(12)
+        while not repo.reserve_public(token, item["deckId"], n, now_iso()):
+            token = secrets.token_urlsafe(12)
+        _s3().copy_object(
+            Bucket=_bucket(),
+            CopySource={"Bucket": _bucket(), "Key": dm.slide_key(item["deckId"], n)},
+            Key=f"public/{token}/index.html", ContentType="text/html",
+        )
+        repo.put(dm.set_public_token(item, token, now_iso()))
+        return _resp(200, {"token": token, "url": f"/p/{token}"})
+
+    if method == "DELETE" and path.endswith("/share"):
+        item = repo.get(_pid(event))
+        if not item:
+            return _resp(404, {"error": "not found"})
+        token = item.get("publicToken")
+        if token:
+            _delete_prefix(f"public/{token}/")
+            repo.release_public(token)
+            repo.put(dm.set_public_token(item, None, now_iso()))
+        return _resp(200, {"ok": True})
+
+    # --- download ---
+    if method == "GET" and path.endswith("/download"):
+        item = repo.get(_pid(event))
+        if not item:
+            return _resp(404, {"error": "not found"})
+        fmt = qs.get("format", "html")
+        n = int(qs.get("version") or item["currentVersion"])
+        safe_title = re.sub(r"[^A-Za-z0-9._-]+", "_", item.get("title") or item["deckId"])
+        if fmt == "pdf":
+            ver = next((v for v in item["versions"] if v["n"] == n), None)
+            key = ver.get("pdfKey") if ver else None
+            if not key:
+                return _resp(409, {"error": "pdf not ready"})
+            ext = "pdf"
+        else:
+            key = dm.slide_key(item["deckId"], n)
+            ext = "html"
+        url = _s3().generate_presigned_url(
+            "get_object",
+            Params={"Bucket": _bucket(), "Key": key,
+                    "ResponseContentDisposition": f'attachment; filename="{safe_title}-v{n}.{ext}"'},
+            ExpiresIn=300,
+        )
+        return _resp(200, {"downloadUrl": url})
+
     if method == "GET" and path == "/api/decks":
         status = qs.get("status") or "active"
         group = qs.get("group")
@@ -216,12 +309,12 @@ def handler(event, context=None):
         if not item:
             return _resp(404, {"error": "not found"})
         if qs.get("hard") == "true":
-            s3 = _s3()
-            for prefix in (f"slides/{deck_id}/", f"thumbnails/{deck_id}/"):
-                listed = s3.list_objects_v2(Bucket=_bucket(), Prefix=prefix)
-                keys = [{"Key": o["Key"]} for o in listed.get("Contents", [])]
-                if keys:
-                    s3.delete_objects(Bucket=_bucket(), Delete={"Objects": keys})
+            for prefix in (f"slides/{deck_id}/", f"thumbnails/{deck_id}/", f"pdfs/{deck_id}/"):
+                _delete_prefix(prefix)
+            token = item.get("publicToken")
+            if token:
+                _delete_prefix(f"public/{token}/")
+                repo.release_public(token)
             alias = item.get("alias")
             if alias:
                 repo.release_alias(alias)
