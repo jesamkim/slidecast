@@ -25,3 +25,13 @@ def test_public_route_has_no_jwt_authorizer():
     assert pub, "public route missing"
     props = pub[0]["Properties"]
     assert props.get("AuthorizationType", "NONE") == "NONE"
+
+
+def test_thumb_fn_has_ephemeral_storage_2048():
+    _, t = _routes()
+    fns = t.find_resources("AWS::Lambda::Function")
+    matches = [
+        f for f in fns.values()
+        if (f["Properties"].get("EphemeralStorage") or {}).get("Size") == 2048
+    ]
+    assert matches, "ThumbFn should have EphemeralStorage.Size == 2048"

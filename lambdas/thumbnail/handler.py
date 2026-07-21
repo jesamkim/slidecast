@@ -36,25 +36,39 @@ def capture_png(html_bytes: bytes) -> bytes:
     with tempfile.NamedTemporaryFile(suffix=".html", delete=False) as f:
         f.write(html_bytes)
         html_path = f.name
-    launch_kwargs = {"args": ["--no-sandbox", "--disable-gpu", "--single-process"]}
+    # Playwright's launch() creates its own temp user-data-dir and removes it
+    # on browser.close(); we just tell Chromium to keep on-disk caches tiny.
+    launch_args = [
+        "--no-sandbox", "--disable-gpu", "--single-process",
+        "--disk-cache-size=1", "--media-cache-size=1",
+    ]
+    launch_kwargs = {"args": launch_args}
     exe = os.environ.get("CHROMIUM_PATH")
     if exe:
         launch_kwargs["executable_path"] = exe
-    with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True, **launch_kwargs)
-        page = browser.new_page(viewport={"width": 1920, "height": 1080})
-        page.goto(f"file://{html_path}", wait_until="load", timeout=15000)
-        # Give @font-face (bundled Noto CJK, embedded base64) a brief moment to apply.
-        # Do NOT wait for networkidle: html-slide decks animate continuously and never
-        # reach network idle, which would burn the whole Lambda timeout.
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True, **launch_kwargs)
+            try:
+                page = browser.new_page(viewport={"width": 1920, "height": 1080})
+                page.goto(f"file://{html_path}", wait_until="load", timeout=15000)
+                # Give @font-face (bundled Noto CJK, embedded base64) a brief moment to apply.
+                # Do NOT wait for networkidle: html-slide decks animate continuously and never
+                # reach network idle, which would burn the whole Lambda timeout.
+                try:
+                    page.evaluate("() => document.fonts && document.fonts.ready")
+                except Exception:
+                    pass
+                page.wait_for_timeout(1000)
+                png = page.screenshot(type="png")
+            finally:
+                browser.close()
+        return png
+    finally:
         try:
-            page.evaluate("() => document.fonts && document.fonts.ready")
-        except Exception:
+            os.unlink(html_path)
+        except OSError:
             pass
-        page.wait_for_timeout(1000)
-        png = page.screenshot(type="png")
-        browser.close()
-    return png
 
 
 def capture_pdf(html_bytes: bytes) -> bytes:
@@ -72,59 +86,71 @@ def capture_pdf(html_bytes: bytes) -> bytes:
     with tempfile.NamedTemporaryFile(suffix=".html", delete=False) as f:
         f.write(html_bytes)
         html_path = f.name
-    launch_kwargs = {"args": ["--no-sandbox", "--disable-gpu", "--single-process"]}
+    # Playwright's launch() creates its own temp user-data-dir and removes it
+    # on browser.close(); we just tell Chromium to keep on-disk caches tiny.
+    launch_args = [
+        "--no-sandbox", "--disable-gpu", "--single-process",
+        "--disk-cache-size=1", "--media-cache-size=1",
+    ]
+    launch_kwargs = {"args": launch_args}
     exe = os.environ.get("CHROMIUM_PATH")
     if exe:
         launch_kwargs["executable_path"] = exe
-    with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True, **launch_kwargs)
-        page = browser.new_page(viewport={"width": 1920, "height": 1080}, device_scale_factor=1)
-        page.goto(f"file://{html_path}", wait_until="load", timeout=15000)
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True, **launch_kwargs)
+            try:
+                page = browser.new_page(viewport={"width": 1920, "height": 1080}, device_scale_factor=1)
+                page.goto(f"file://{html_path}", wait_until="load", timeout=15000)
+                try:
+                    page.evaluate("() => document.fonts && document.fonts.ready")
+                except Exception:
+                    pass
+                page.wait_for_timeout(1000)
+
+                n = page.evaluate("() => document.querySelectorAll('.slide').length")
+                stage = page.query_selector("#stage")
+                if not n or stage is None:
+                    # Fallback: non-html-slide deck -> print-to-PDF honoring its @page.
+                    return page.pdf(print_background=True, prefer_css_page_size=True)
+
+                # Neutralize the on-screen scale transform so #stage is captured 1:1 at 1920x1080.
+                page.evaluate("""() => {
+                    const st = document.getElementById('stage');
+                    if (st) { st.style.transform = 'none'; st.style.margin = '0'; }
+                    const vp = document.getElementById('viewport');
+                    if (vp) { vp.style.display = 'block'; }
+                }""")
+
+                shots = []
+                for i in range(n):
+                    page.evaluate("""(idx) => {
+                        const slides = [...document.querySelectorAll('.slide')];
+                        slides.forEach((s, k) => s.classList.toggle('active', k === idx));
+                        // reveal every step in the active slide (final animation state)
+                        slides[idx].querySelectorAll('[data-step]').forEach(el => {
+                            el.classList.add('revealed');
+                            el.style.opacity = '1';
+                            el.style.transform = 'none';
+                            el.style.visibility = 'visible';
+                        });
+                    }""", i)
+                    page.wait_for_timeout(300)  # let layout/reveal settle
+                    st = page.query_selector("#stage")
+                    shots.append(st.screenshot(type="png"))
+            finally:
+                browser.close()
+
+        # Assemble PNGs into a single PDF, one 1920x1080 page per slide.
+        images = [Image.open(io.BytesIO(b)).convert("RGB") for b in shots]
+        out = io.BytesIO()
+        images[0].save(out, format="PDF", save_all=True, append_images=images[1:], resolution=96.0)
+        return out.getvalue()
+    finally:
         try:
-            page.evaluate("() => document.fonts && document.fonts.ready")
-        except Exception:
+            os.unlink(html_path)
+        except OSError:
             pass
-        page.wait_for_timeout(1000)
-
-        n = page.evaluate("() => document.querySelectorAll('.slide').length")
-        stage = page.query_selector("#stage")
-        if not n or stage is None:
-            # Fallback: non-html-slide deck -> print-to-PDF honoring its @page.
-            data = page.pdf(print_background=True, prefer_css_page_size=True)
-            browser.close()
-            return data
-
-        # Neutralize the on-screen scale transform so #stage is captured 1:1 at 1920x1080.
-        page.evaluate("""() => {
-            const st = document.getElementById('stage');
-            if (st) { st.style.transform = 'none'; st.style.margin = '0'; }
-            const vp = document.getElementById('viewport');
-            if (vp) { vp.style.display = 'block'; }
-        }""")
-
-        shots = []
-        for i in range(n):
-            page.evaluate("""(idx) => {
-                const slides = [...document.querySelectorAll('.slide')];
-                slides.forEach((s, k) => s.classList.toggle('active', k === idx));
-                // reveal every step in the active slide (final animation state)
-                slides[idx].querySelectorAll('[data-step]').forEach(el => {
-                    el.classList.add('revealed');
-                    el.style.opacity = '1';
-                    el.style.transform = 'none';
-                    el.style.visibility = 'visible';
-                });
-            }""", i)
-            page.wait_for_timeout(300)  # let layout/reveal settle
-            st = page.query_selector("#stage")
-            shots.append(st.screenshot(type="png"))
-        browser.close()
-
-    # Assemble PNGs into a single PDF, one 1920x1080 page per slide.
-    images = [Image.open(io.BytesIO(b)).convert("RGB") for b in shots]
-    out = io.BytesIO()
-    images[0].save(out, format="PDF", save_all=True, append_images=images[1:], resolution=96.0)
-    return out.getvalue()
 
 
 def handler(event, context=None):

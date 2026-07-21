@@ -1,7 +1,7 @@
 import os
 
 from aws_cdk import (
-    Stack, RemovalPolicy, Duration, CfnOutput,
+    Stack, RemovalPolicy, Duration, CfnOutput, Size,
     aws_s3 as s3,
     aws_dynamodb as ddb,
     aws_cognito as cognito,
@@ -131,6 +131,7 @@ class SlidecastStack(Stack):
             code=lambda_.DockerImageCode.from_image_asset(thumb_asset_path),
             memory_size=3008,
             timeout=Duration.seconds(120),
+            ephemeral_storage_size=Size.mebibytes(2048),
             environment={"TABLE_NAME": table.table_name, "BUCKET_NAME": bucket.bucket_name},
         )
         table.grant_read_write_data(thumb_fn)
