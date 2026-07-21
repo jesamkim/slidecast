@@ -41,7 +41,7 @@ def resolve_target(repo: DeckRepo, deck_id: str) -> int:
 
 
 def append(html_path, table=DEFAULT_TABLE, bucket=None, dynamodb=None, s3=None,
-           capture=None, title=None, tags=None):
+           capture=None, title=None, tags=None, group=None, alias=None):
     bucket = bucket or os.environ["BUCKET_NAME"]
     s3 = s3 or boto3.client("s3")
     res = dynamodb or boto3.resource("dynamodb")
@@ -66,8 +66,44 @@ def append(html_path, table=DEFAULT_TABLE, bucket=None, dynamodb=None, s3=None,
     # Use upsert_version with the pre-resolved n so post-rollback appends
     # land at max+1 rather than overwriting an existing immutable version.
     item = dm.upsert_version(item, n, tkey, len(html), now_iso())
+
+    if group is not None:
+        gid = slugify(group)
+        if repo.get(dm.group_pk(gid)) is None:
+            repo.put(dm.new_group_item(gid, group, now_iso()))
+        item = dm.set_group(item, gid, now_iso())
+
+    if alias is not None:
+        aslug = slugify(alias)
+        if not dm.is_valid_alias(aslug):
+            raise SystemExit(f"invalid or reserved alias: {alias}")
+        existing = repo.query_by_alias(aslug)
+        if existing and existing.get("deckId") != deck_id:
+            raise SystemExit(
+                f"alias '{aslug}' already taken by deck '{existing.get('deckId')}'"
+            )
+        item = dm.set_alias(item, aslug, now_iso())
+
     repo.put(item)
     return deck_id, n
+
+
+def new_group(name, table=DEFAULT_TABLE, dynamodb=None):
+    repo = DeckRepo(table, dynamodb or boto3.resource("dynamodb"))
+    gid = slugify(name)
+    if repo.get(dm.group_pk(gid)) is not None:
+        raise SystemExit(f"group already exists: {gid}")
+    repo.put(dm.new_group_item(gid, name, now_iso()))
+    return gid
+
+
+def del_group(group_id, table=DEFAULT_TABLE, dynamodb=None):
+    repo = DeckRepo(table, dynamodb or boto3.resource("dynamodb"))
+    for status in ("active", "archived"):
+        for d in repo.list_by_status(status):
+            if dm.deck_type(d) == "deck" and d.get("group") == group_id:
+                repo.put(dm.set_group(d, None, now_iso()))
+    repo.delete(dm.group_pk(group_id))
 
 
 def rollback(deck_id, n, table=DEFAULT_TABLE, dynamodb=None):
@@ -103,6 +139,10 @@ def main():
     ap.add_argument("html", nargs="?")
     ap.add_argument("--title")
     ap.add_argument("--tags")
+    ap.add_argument("--group")
+    ap.add_argument("--alias")
+    ap.add_argument("--new-group", dest="new_group", metavar="NAME")
+    ap.add_argument("--del-group", dest="del_group", metavar="GROUPID")
     ap.add_argument("--rollback", nargs=2, metavar=("DECK", "N"))
     ap.add_argument("--delete", metavar="DECK")
     ap.add_argument("--hard", action="store_true")
@@ -117,9 +157,18 @@ def main():
         else:
             soft_delete(a.delete, table)
         return
+    if a.new_group:
+        gid = new_group(a.new_group, table)
+        print(f"group created: {gid}")
+        return
+    if a.del_group:
+        del_group(a.del_group, table)
+        print(f"group deleted: {a.del_group}")
+        return
     if a.html:
         tags = a.tags.split(",") if a.tags else []
-        deck_id, n = append(a.html, table, title=a.title, tags=tags)
+        deck_id, n = append(a.html, table, title=a.title, tags=tags,
+                            group=a.group, alias=a.alias)
         print(f"uploaded: {deck_id} v{n}")
         return
     ap.print_help()
