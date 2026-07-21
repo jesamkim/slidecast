@@ -1,24 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent, act } from "@testing-library/react";
-import { useRef } from "react";
 import { NavOverlay } from "./NavOverlay";
-
-// 테스트용 래퍼: iframe + NavOverlay, iframe.contentWindow.postMessage를 스파이
-function Harness({ post }: { post: (m: unknown) => void }) {
-  const ref = useRef<HTMLIFrameElement>(null);
-  // happy-dom iframe.contentWindow는 존재. postMessage를 주입 스파이로 대체.
-  return (
-    <div>
-      <iframe title="deck" ref={(el) => {
-        if (el && el.contentWindow) {
-          (el.contentWindow as any).postMessage = post;
-        }
-        (ref as any).current = el;
-      }} />
-      <NavOverlay iframeRef={ref} />
-    </div>
-  );
-}
 
 describe("NavOverlay", () => {
   it("is hidden until a slidecast-state message arrives (unsupported deck fallback)", () => {
@@ -45,7 +27,11 @@ describe("NavOverlay", () => {
   it("clicking next posts a slidecast-nav next command to the iframe", () => {
     const iframe = document.createElement("iframe");
     const post = vi.fn();
-    (iframe as any).contentWindow = { postMessage: post };
+    // happy-dom exposes contentWindow as a read-only getter, so override it.
+    Object.defineProperty(iframe, "contentWindow", {
+      configurable: true,
+      value: { postMessage: post },
+    });
     const ref = { current: iframe } as any;
     render(<NavOverlay iframeRef={ref} />);
     act(() => {
