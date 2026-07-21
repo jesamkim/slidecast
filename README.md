@@ -43,9 +43,31 @@ Cognito User Pool (셀프가입 차단, 관리자 사용자 1개) + Hosted UI
 
 ## 데이터 모델 (DynamoDB `SlideDecks`)
 
-- PK `deckId` (파일명 슬러그), GSI `byUpdatedAt` (PK `status`, SK `updatedAt`)
-- 속성: `title, tags[], status(active|archived), currentVersion, versions[], createdAt, updatedAt`
-- `versions[]` 항목: `{n, createdAt, thumbnailKey, sizeBytes, slideCount}`
+- 덱 아이템: PK `deckId` (파일명 슬러그), `type="deck"`
+  - 속성: `title, tags[], group(null=미분류), alias(null), status(active|archived), currentVersion, versions[], createdAt, updatedAt`
+  - `versions[]` 항목: `{n, createdAt, thumbnailKey, sizeBytes, slideCount}`
+- 그룹 메타 아이템: PK `GROUP#{groupId}`, `type="group"`, `{groupId, name, createdAt}` (같은 테이블 공존)
+- GSI `byUpdatedAt` (PK `status`, SK `updatedAt`) — 갤러리 최신순
+- GSI `byAlias` (PK `alias`, sparse) — alias 유일성/리졸브. alias 없는 아이템은 미포함.
+- 참고: `put` 시 값이 null인 키는 제거해 저장한다(sparse GSI 요건). 읽을 때는 항상 `.get()`/`?? null`.
+
+## 그룹 · alias · 짧은 URL
+
+- **그룹**: 덱은 최대 1개 그룹(폴더식)에 속한다. 갤러리 좌측 사이드바에서 전체/미분류/그룹별
+  필터. 그룹 삭제 시 소속 덱은 미분류로 이동(덱 보존).
+- **alias**: 덱마다 기억하기 쉬운 짧은 슬러그(예: `roadmap`)를 부여. `https://<도메인>/s/{alias}`로
+  접속하면 로그인 후 현재 버전이 풀스크린 재생된다. 예약어(`api, slides, thumbnails, s, assets, web`)와
+  중복은 거부된다. (로그인 사용자 전용 — 공유 링크도 로그인 필요.)
+- **검색**: 제목·태그·alias를 매칭하며 그룹 필터와 결합된다.
+- **날짜**: 카드·버전 목록은 `YYYY-MM-DD`로 표기(슬라이드 HTML 원본은 미변경).
+
+## API (요약)
+
+- 덱: `GET /api/decks?status=&group=`, `GET|PUT|DELETE /api/decks/{id}`,
+  `PUT /api/decks/{id}/current|group|alias`, `POST /api/decks/{id}/restore`
+- 그룹: `GET|POST /api/groups`, `DELETE /api/groups/{groupId}`
+- alias 리졸브: `GET /api/resolve/{alias}`
+- 모두 Cognito JWT authorizer 뒤. `/s/{alias}`는 CloudFront SPA 폴백(403/404→index.html)으로 서빙.
 
 ## 배포 순서
 
@@ -76,12 +98,17 @@ export BUCKET_NAME=<cdk-outputs의 BucketName>
 python3 -m playwright install chromium   # 최초 1회 (로컬 썸네일 캡처용)
 
 # 신규/수정 업로드 (파일명 슬러그가 기존 덱과 같으면 새 버전으로 추가)
-python3 skill/slidecast-append/slidecast_append.py deck.html --title "제목" --tags biz,2026
+# --group: 그룹 배정(없으면 자동 생성), --alias: 짧은 URL 슬러그(예약어/중복 거부)
+python3 skill/slidecast-append/slidecast_append.py deck.html --title "제목" --tags biz,2026 --group Marketing --alias roadmap
 
 # 롤백 / 소프트 삭제 / 영구 삭제
 python3 skill/slidecast-append/slidecast_append.py --rollback <deckId> <n>
 python3 skill/slidecast-append/slidecast_append.py --delete <deckId>
 python3 skill/slidecast-append/slidecast_append.py --delete <deckId> --hard
+
+# 그룹 관리
+python3 skill/slidecast-append/slidecast_append.py --new-group "Marketing"
+python3 skill/slidecast-append/slidecast_append.py --del-group marketing
 ```
 
 ## 테스트
