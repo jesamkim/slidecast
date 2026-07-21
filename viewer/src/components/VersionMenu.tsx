@@ -32,17 +32,36 @@ export function VersionMenu({
                 background: isCurrent ? "var(--surface-strong)" : "var(--surface)",
               }}
             >
-              <img
-                src={`/${v.thumbnailKey}`}
-                alt=""
-                width={112}
-                style={{
-                  borderRadius: 8,
-                  aspectRatio: "16 / 9",
-                  objectFit: "cover",
-                  background: "#000",
-                }}
-              />
+              {v.thumbnailKey ? (
+                <img
+                  src={`/${v.thumbnailKey}`}
+                  alt=""
+                  width={112}
+                  style={{
+                    borderRadius: 8,
+                    aspectRatio: "16 / 9",
+                    objectFit: "cover",
+                    background: "#000",
+                  }}
+                />
+              ) : (
+                // Thumbnail not generated yet; avoid a "/null" request.
+                <div
+                  style={{
+                    width: 112,
+                    borderRadius: 8,
+                    aspectRatio: "16 / 9",
+                    display: "grid",
+                    placeItems: "center",
+                    background:
+                      "linear-gradient(135deg, var(--surface) 0%, var(--surface-strong, #14141c) 100%)",
+                    color: "var(--text-dim)",
+                    fontSize: 11,
+                  }}
+                >
+                  생성 중...
+                </div>
+              )}
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontWeight: 600, fontSize: 15 }}>
                   v{v.n}

@@ -44,7 +44,7 @@ export function DeckCard({
           overflow: "hidden",
         }}
       >
-        {cur && (
+        {cur?.thumbnailKey ? (
           <img
             src={`/${cur.thumbnailKey}`}
             alt={deck.title}
@@ -56,6 +56,24 @@ export function DeckCard({
               transition: "transform 420ms var(--ease, ease)",
             }}
           />
+        ) : (
+          // No thumbnail yet (freshly uploaded, thumbnail Lambda pending).
+          // Show a gradient placeholder instead of requesting "/null".
+          <div
+            style={{
+              width: "100%",
+              height: "100%",
+              display: "grid",
+              placeItems: "center",
+              background:
+                "linear-gradient(135deg, var(--surface) 0%, var(--surface-strong, #14141c) 100%)",
+              color: "var(--text-dim)",
+              fontSize: 13,
+              letterSpacing: "0.02em",
+            }}
+          >
+            생성 중...
+          </div>
         )}
         <div
           style={{

@@ -62,4 +62,23 @@ describe("Gallery", () => {
     fireEvent.click(restoreBtn);
     await waitFor(() => expect(api.restore).toHaveBeenCalledWith("a"));
   });
+
+  it("renders a placeholder (not a /null image) when the current version has no thumbnail", async () => {
+    const pending = {
+      ...alpha,
+      deckId: "b",
+      title: "Pending",
+      versions: [{ n: 1, createdAt: "t", thumbnailKey: null, sizeBytes: 1 }],
+    };
+    const { container } = render(
+      <Gallery api={makeApi([pending])} onLogout={() => {}} />,
+    );
+    await waitFor(() => expect(screen.getByText("Pending")).toBeTruthy());
+
+    // No img should point at "/null".
+    const imgs = Array.from(container.querySelectorAll("img"));
+    expect(imgs.some((i) => (i.getAttribute("src") ?? "").includes("null"))).toBe(false);
+    // The placeholder copy is shown instead.
+    expect(screen.getByText("생성 중...")).toBeTruthy();
+  });
 });
