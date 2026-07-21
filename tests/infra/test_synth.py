@@ -7,7 +7,7 @@ from slidecast.slidecast_stack import SlidecastStack
 
 def _template():
     app = App()
-    stack = SlidecastStack(app, "TestStack", env={"account": "123456789012", "region": "us-east-1"})
+    stack = SlidecastStack(app, "TestStack", env={"account": "111111111111", "region": "us-east-1"})
     return Template.from_stack(stack)
 
 

@@ -21,5 +21,7 @@ cp shared/deck_model.py lambdas/thumbnail/deck_model.py
 # 2) CDK deploy.
 cd infra
 python3 -m pip install -r requirements.txt -q
-npx cdk bootstrap aws://123456789012/us-east-1 || true
+ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
+export CDK_DEFAULT_ACCOUNT="$ACCOUNT"
+npx cdk bootstrap "aws://$ACCOUNT/us-east-1" || true
 npx cdk deploy --require-approval never --outputs-file ../cdk-outputs.json
