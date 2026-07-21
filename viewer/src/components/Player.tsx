@@ -1,7 +1,9 @@
 import { useEffect, useRef } from "react";
+import { NavOverlay } from "./NavOverlay";
 
 export function Player({ src, onClose }: { src: string; onClose: () => void }) {
   const ref = useRef<HTMLDivElement>(null);
+  const iframeRef = useRef<HTMLIFrameElement>(null);
   useEffect(() => {
     ref.current?.focus();
     const onKey = (e: KeyboardEvent) => {
@@ -54,11 +56,13 @@ export function Player({ src, onClose }: { src: string; onClose: () => void }) {
         parent document, so keyboard close still works.
       */}
       <iframe
+        ref={iframeRef}
         title="deck"
         src={src}
         sandbox="allow-scripts"
         style={{ width: "100%", height: "100%", border: "none", background: "#000" }}
       />
+      <NavOverlay iframeRef={iframeRef} />
     </div>
   );
 }
