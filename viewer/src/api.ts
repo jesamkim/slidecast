@@ -1,4 +1,4 @@
-import type { Deck } from "./types";
+import type { Deck, Group } from "./types";
 
 export function createApi(baseUrl: string, getToken: () => string) {
   const auth = () => ({ Authorization: `Bearer ${getToken()}`, "Content-Type": "application/json" });
@@ -7,9 +7,35 @@ export function createApi(baseUrl: string, getToken: () => string) {
     return r.json();
   };
   return {
-    async listDecks(status = "active"): Promise<Deck[]> {
-      const r = await fetch(`${baseUrl}/api/decks?status=${status}`, { headers: auth() });
+    async listDecks(status = "active", group?: string): Promise<Deck[]> {
+      const q = new URLSearchParams({ status });
+      if (group) q.set("group", group);
+      const r = await fetch(`${baseUrl}/api/decks?${q}`, { headers: auth() });
       return (await j(r)).decks;
+    },
+    async listGroups(): Promise<Group[]> {
+      return (await j(await fetch(`${baseUrl}/api/groups`, { headers: auth() }))).groups;
+    },
+    async createGroup(name: string) {
+      return j(await fetch(`${baseUrl}/api/groups`, {
+        method: "POST", headers: auth(), body: JSON.stringify({ name }),
+      }));
+    },
+    async deleteGroup(groupId: string) {
+      return j(await fetch(`${baseUrl}/api/groups/${groupId}`, { method: "DELETE", headers: auth() }));
+    },
+    async setGroup(id: string, groupId: string | null) {
+      return j(await fetch(`${baseUrl}/api/decks/${id}/group`, {
+        method: "PUT", headers: auth(), body: JSON.stringify({ groupId }),
+      }));
+    },
+    async setAlias(id: string, alias: string | null) {
+      return j(await fetch(`${baseUrl}/api/decks/${id}/alias`, {
+        method: "PUT", headers: auth(), body: JSON.stringify({ alias }),
+      }));
+    },
+    async resolve(alias: string): Promise<Deck> {
+      return j(await fetch(`${baseUrl}/api/resolve/${alias}`, { headers: auth() }));
     },
     async getDeck(id: string): Promise<Deck> {
       return j(await fetch(`${baseUrl}/api/decks/${id}`, { headers: auth() }));

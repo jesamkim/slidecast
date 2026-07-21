@@ -17,4 +17,10 @@ export interface Deck {
   versions: Version[];
   createdAt: string;
   updatedAt: string;
+  group: string | null;
+  alias: string | null;
+}
+export interface Group {
+  groupId: string;
+  name: string;
 }
