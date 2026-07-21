@@ -1,6 +1,7 @@
 node_modules/
 viewer/dist/
 shared_layer/
+lambdas/thumbnail/ddb.py
 cdk-outputs.json
 __pycache__/
 *.pyc
