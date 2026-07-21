@@ -87,14 +87,57 @@ def set_version_thumbnail(
 def new_deck_item(deck_id: str, title: str, tags: list, now_iso: str) -> dict:
     return {
         "deckId": deck_id,
+        "type": "deck",
         "title": title,
         "tags": list(tags),
+        "group": None,
+        "alias": None,
         "status": "active",
         "currentVersion": 0,
         "versions": [],
         "createdAt": now_iso,
         "updatedAt": now_iso,
     }
+
+
+RESERVED_ALIASES = frozenset({"api", "slides", "thumbnails", "s", "assets", "web"})
+
+
+def group_pk(group_id: str) -> str:
+    return f"GROUP#{group_id}"
+
+
+def new_group_item(group_id: str, name: str, now_iso: str) -> dict:
+    return {
+        "deckId": group_pk(group_id),
+        "type": "group",
+        "groupId": group_id,
+        "name": name,
+        "status": "active",
+        "createdAt": now_iso,
+    }
+
+
+def is_valid_alias(alias: str) -> bool:
+    return bool(alias) and alias not in RESERVED_ALIASES
+
+
+def deck_type(item: dict) -> str:
+    return item.get("type") or "deck"
+
+
+def set_group(item: dict, group_id, now_iso: str) -> dict:
+    new_item = deepcopy(item)
+    new_item["group"] = group_id
+    new_item["updatedAt"] = now_iso
+    return new_item
+
+
+def set_alias(item: dict, alias, now_iso: str) -> dict:
+    new_item = deepcopy(item)
+    new_item["alias"] = alias
+    new_item["updatedAt"] = now_iso
+    return new_item
 
 
 def add_version(
