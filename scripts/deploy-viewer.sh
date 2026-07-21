@@ -72,4 +72,25 @@ else
   echo "note: DistributionId output not found; skipping invalidation. CloudFront default TTL applies."
 fi
 
+# Point the Cognito app client at the real CloudFront domain. The CDK
+# stack synthesizes the client with a localhost placeholder (Cognito
+# requires at least one callback URL when the code grant flow is enabled),
+# and this step is the source of truth for the deployed values. Idempotent:
+# rerunning simply reasserts the same URLs and OAuth settings.
+CALLBACK="https://$DIST_DOMAIN/"
+LOGOUT="https://$DIST_DOMAIN/"
+echo "Updating Cognito app client $CLIENT callback/logout URLs to $CALLBACK"
+aws cognito-idp update-user-pool-client \
+  --user-pool-id "$POOL" \
+  --client-id "$CLIENT" \
+  --callback-urls "$CALLBACK" \
+  --logout-urls "$LOGOUT" \
+  --allowed-o-auth-flows code \
+  --allowed-o-auth-scopes openid email \
+  --allowed-o-auth-flows-user-pool-client \
+  --supported-identity-providers COGNITO \
+  --explicit-auth-flows ALLOW_USER_SRP_AUTH ALLOW_REFRESH_TOKEN_AUTH \
+  >/dev/null
+echo "Cognito app client updated."
+
 echo "Deploy complete: https://$DIST_DOMAIN"
