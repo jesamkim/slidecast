@@ -24,8 +24,11 @@ def parse_key(key: str):
 def capture_png(html_bytes: bytes) -> bytes:
     """Render the deck's first frame to a 1920x1080 PNG using headless Chromium.
 
-    Uses the Chromium binary bundled via a Lambda layer at /opt/chromium.
-    Isolated here so unit tests can stub it.
+    Runs inside a container-image Lambda (see lambdas/thumbnail/Dockerfile).
+    Playwright manages its own Chromium install under PLAYWRIGHT_BROWSERS_PATH,
+    so we let it pick the executable. The playwright import stays inside this
+    function so the module remains importable without playwright (tests stub
+    capture_png directly).
     """
     import tempfile
     from playwright.sync_api import sync_playwright
@@ -33,11 +36,12 @@ def capture_png(html_bytes: bytes) -> bytes:
     with tempfile.NamedTemporaryFile(suffix=".html", delete=False) as f:
         f.write(html_bytes)
         html_path = f.name
+    launch_kwargs = {"args": ["--no-sandbox", "--disable-gpu", "--single-process"]}
+    exe = os.environ.get("CHROMIUM_PATH")
+    if exe:
+        launch_kwargs["executable_path"] = exe
     with sync_playwright() as p:
-        browser = p.chromium.launch(
-            executable_path=os.environ.get("CHROMIUM_PATH", "/opt/chromium/chrome"),
-            args=["--no-sandbox", "--disable-gpu", "--single-process"],
-        )
+        browser = p.chromium.launch(headless=True, **launch_kwargs)
         page = browser.new_page(viewport={"width": 1920, "height": 1080})
         page.goto(f"file://{html_path}")
         page.wait_for_timeout(1200)

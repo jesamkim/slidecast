@@ -2,6 +2,12 @@ node_modules/
 viewer/dist/
 shared_layer/
 lambdas/thumbnail/ddb.py
+lambdas/thumbnail/deck_model.py
+lambdas/thumbnail/slug.py
+viewer/tsconfig.node.tsbuildinfo
+viewer/tsconfig.tsbuildinfo
+viewer/vite.config.d.ts
+viewer/vite.config.js
 cdk-outputs.json
 __pycache__/
 *.pyc

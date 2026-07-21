@@ -13,6 +13,10 @@ mkdir -p shared_layer/python
 cp shared/deck_model.py shared_layer/python/deck_model.py
 cp lambdas/api/ddb.py lambdas/thumbnail/ddb.py
 cp lambdas/api/slug.py lambdas/thumbnail/slug.py 2>/dev/null || true
+# Thumbnail Lambda is a container image (see lambdas/thumbnail/Dockerfile);
+# its Docker build context is lambdas/thumbnail/, so the shared model must
+# be present there too (Dockerfile COPYs it in).
+cp shared/deck_model.py lambdas/thumbnail/deck_model.py
 
 # 2) CDK deploy.
 cd infra
