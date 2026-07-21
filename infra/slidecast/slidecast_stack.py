@@ -198,12 +198,43 @@ class SlidecastStack(Stack):
         oac = cf.S3OriginAccessControl(self, "Oac")
         s3_origin = origins.S3BucketOrigin.with_origin_access_control(bucket, origin_access_control=oac)
         api_domain = f"{http_api.api_id}.execute-api.{self.region}.amazonaws.com"
+
+        # SPA rewrite via CloudFront Function on the default (S3) behavior
+        # only. Distribution-level error_responses cannot be used because
+        # they are distribution-wide and would remap real API 404/403
+        # responses on the /api/* behavior into index.html+200, masking
+        # legitimate API errors. Rewriting extension-less non-/api paths to
+        # /index.html at the viewer-request stage keeps SPA deep-links
+        # working while /api/* (a separate behavior) is untouched.
+        spa_rewrite_fn = cf.Function(
+            self, "SpaRewriteFn",
+            code=cf.FunctionCode.from_inline(
+                "function handler(event) {\n"
+                "  var req = event.request;\n"
+                "  var uri = req.uri;\n"
+                "  // Never rewrite API calls (separate behavior, but guard anyway)\n"
+                "  if (uri.startsWith('/api/')) { return req; }\n"
+                "  // Serve real files (anything with an extension) as-is\n"
+                "  var last = uri.split('/').pop();\n"
+                "  if (last.indexOf('.') !== -1) { return req; }\n"
+                "  // SPA client-side route -> index.html\n"
+                "  req.uri = '/index.html';\n"
+                "  return req;\n"
+                "}"
+            ),
+            runtime=cf.FunctionRuntime.JS_2_0,
+        )
+
         distribution = cf.Distribution(
             self, "Cdn",
             default_root_object="index.html",
             default_behavior=cf.BehaviorOptions(
                 origin=s3_origin,
                 viewer_protocol_policy=cf.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
+                function_associations=[cf.FunctionAssociation(
+                    function=spa_rewrite_fn,
+                    event_type=cf.FunctionEventType.VIEWER_REQUEST,
+                )],
             ),
             additional_behaviors={
                 "/api/*": cf.BehaviorOptions(
@@ -214,28 +245,6 @@ class SlidecastStack(Stack):
                     origin_request_policy=cf.OriginRequestPolicy.ALL_VIEWER_EXCEPT_HOST_HEADER,
                 ),
             },
-            # SPA fallback: deep links like /s/{alias} don't correspond to
-            # an S3 object, so the default (S3) origin returns 403/404. Map
-            # those to /index.html+200 so the React router can handle the
-            # route. NOTE: /api/* is a separate behavior with its own origin,
-            # so real API 4xx propagate unchanged. A genuinely missing
-            # /slides/{deck}/v/{n}.html will now also render index.html+200
-            # instead of a 404, which is acceptable for this personal tool
-            # (the viewer only requests versions listed in the deck item).
-            error_responses=[
-                cf.ErrorResponse(
-                    http_status=403,
-                    response_http_status=200,
-                    response_page_path="/index.html",
-                    ttl=Duration.seconds(0),
-                ),
-                cf.ErrorResponse(
-                    http_status=404,
-                    response_http_status=200,
-                    response_page_path="/index.html",
-                    ttl=Duration.seconds(0),
-                ),
-            ],
         )
 
         CfnOutput(self, "DistributionDomain", value=distribution.distribution_domain_name)

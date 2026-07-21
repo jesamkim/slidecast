@@ -31,20 +31,41 @@ def test_alias_route_exists():
     assert any("/group" in k for k in keys)
 
 
-def test_spa_fallback_error_responses():
-    _t().has_resource_properties("AWS::CloudFront::Distribution", {
+def test_spa_fallback_via_cloudfront_function():
+    """SPA deep-link fallback is implemented via a CloudFront Function on the
+    default (S3) behavior only, NOT via distribution-level CustomErrorResponses
+    (which would remap /api/* 4xx into index.html+200 and mask real API errors).
+    """
+    t = _t()
+
+    # A CloudFront Function resource must exist.
+    fns = t.find_resources("AWS::CloudFront::Function")
+    assert fns, "expected a CloudFront Function for SPA rewrite"
+    # And its code should route non-/api extension-less paths to /index.html.
+    code_blobs = [
+        f["Properties"]["FunctionCode"] for f in fns.values()
+    ]
+    assert any("/index.html" in c and "/api/" in c for c in code_blobs), (
+        "CloudFront Function code should guard /api and rewrite to /index.html"
+    )
+
+    # The distribution's DEFAULT behavior must associate the function as
+    # viewer-request. The /api/* additional behavior must NOT.
+    t.has_resource_properties("AWS::CloudFront::Distribution", {
         "DistributionConfig": Match.object_like({
-            "CustomErrorResponses": Match.array_with([
-                Match.object_like({
-                    "ErrorCode": 403,
-                    "ResponseCode": 200,
-                    "ResponsePagePath": "/index.html",
-                }),
-                Match.object_like({
-                    "ErrorCode": 404,
-                    "ResponseCode": 200,
-                    "ResponsePagePath": "/index.html",
-                }),
-            ]),
+            "DefaultCacheBehavior": Match.object_like({
+                "FunctionAssociations": Match.array_with([
+                    Match.object_like({"EventType": "viewer-request"}),
+                ]),
+            }),
         }),
     })
+
+    # Distribution-level CustomErrorResponses SPA remap (403/404 -> /index.html)
+    # must be gone; otherwise API 404s get masked.
+    dists = t.find_resources("AWS::CloudFront::Distribution")
+    for d in dists.values():
+        cers = d["Properties"]["DistributionConfig"].get("CustomErrorResponses", [])
+        for cer in cers:
+            if cer.get("ResponsePagePath") == "/index.html":
+                assert False, "distribution-level SPA CustomErrorResponses must be removed"
