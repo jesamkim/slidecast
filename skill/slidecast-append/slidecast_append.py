@@ -136,10 +136,19 @@ def soft_delete(deck_id, table=DEFAULT_TABLE, dynamodb=None):
 
 
 def _delete_prefix(s3, bucket: str, prefix: str) -> None:
-    listed = s3.list_objects_v2(Bucket=bucket, Prefix=prefix)
-    keys = [{"Key": o["Key"]} for o in listed.get("Contents", [])]
-    if keys:
-        s3.delete_objects(Bucket=bucket, Delete={"Objects": keys})
+    token = None
+    while True:
+        kwargs = {"Bucket": bucket, "Prefix": prefix}
+        if token:
+            kwargs["ContinuationToken"] = token
+        resp = s3.list_objects_v2(**kwargs)
+        keys = [{"Key": o["Key"]} for o in resp.get("Contents", [])]
+        if keys:
+            s3.delete_objects(Bucket=bucket, Delete={"Objects": keys})
+        if resp.get("IsTruncated"):
+            token = resp.get("NextContinuationToken")
+        else:
+            break
 
 
 def share(deck_id, table=DEFAULT_TABLE, bucket=None, dynamodb=None, s3=None) -> str:
@@ -163,7 +172,7 @@ def share(deck_id, table=DEFAULT_TABLE, bucket=None, dynamodb=None, s3=None) -> 
         CopySource={"Bucket": bucket, "Key": dm.slide_key(deck_id, n)},
         MetadataDirective="REPLACE",
         ContentType="text/html",
-        CacheControl="public, max-age=31536000, immutable",
+        CacheControl="no-cache, no-store, must-revalidate",
     )
     repo.put(dm.set_public_token(item, token, now_iso()))
     return f"/p/{token}"
