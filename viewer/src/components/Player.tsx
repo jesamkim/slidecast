@@ -42,9 +42,21 @@ export function Player({ src, onClose }: { src: string; onClose: () => void }) {
       >
         닫기 (ESC)
       </button>
+      {/*
+        Sandbox the deck iframe. html-slide decks are self-contained single
+        files with inline JS (keyboard navigation, animation), so they need
+        `allow-scripts`. We deliberately omit `allow-same-origin`: the iframe
+        loads from the same origin as the viewer, and granting same-origin
+        would let a malicious deck read sessionStorage (the id_token),
+        cookies, and the parent DOM. Dropping same-origin forces the iframe
+        into an opaque origin — scripts still run, but they can't touch the
+        viewer's storage or auth state. The ESC-to-close handler is on the
+        parent document, so keyboard close still works.
+      */}
       <iframe
         title="deck"
         src={src}
+        sandbox="allow-scripts"
         style={{ width: "100%", height: "100%", border: "none", background: "#000" }}
       />
     </div>

@@ -151,6 +151,14 @@ export function Gallery({ api, onLogout }: GalleryProps) {
               archived={archived}
               onPlay={() => play(d)}
               onVersions={() => setVersionsOf(d)}
+              onRestore={
+                archived
+                  ? async () => {
+                      await api.restore(d.deckId);
+                      void reload();
+                    }
+                  : undefined
+              }
               onDelete={async () => {
                 if (archived) {
                   if (!confirm(`${d.title}을(를) 영구 삭제할까요?`)) return;

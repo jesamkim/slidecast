@@ -28,7 +28,10 @@ export function buildAuthConfig(c: CognitoConfig) {
     post_logout_redirect_uri: `${window.location.origin}/`,
     response_type: "code",
     scope: "openid email",
-    userStore: new WebStorageStateStore({ store: window.localStorage }),
+    // Store tokens in sessionStorage (per-tab, cleared on tab close) rather than
+    // localStorage. This limits the id_token's exposure window and reduces the
+    // blast radius if any script running on this origin reads storage.
+    userStore: new WebStorageStateStore({ store: window.sessionStorage }),
   };
 }
 

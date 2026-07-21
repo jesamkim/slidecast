@@ -2,9 +2,11 @@ import { describe, it, expect, vi } from "vitest";
 import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import { Gallery } from "./Gallery";
 
-const makeApi = (decks: any[]) =>
+const makeApi = (decks: any[], overrides: Record<string, any> = {}) =>
   ({
     listDecks: vi.fn().mockResolvedValue(decks),
+    restore: vi.fn().mockResolvedValue({}),
+    ...overrides,
   }) as any;
 
 const alpha = {
@@ -44,5 +46,20 @@ describe("Gallery", () => {
       target: { value: "zzz-nomatch" },
     });
     expect(screen.queryByText("Alpha")).toBeNull();
+  });
+
+  it("shows a restore action in the archived view that calls api.restore", async () => {
+    const archived = { ...alpha, status: "archived" };
+    const api = makeApi([archived]);
+    render(<Gallery api={api} onLogout={() => {}} />);
+
+    // Switch to the archived view.
+    fireEvent.click(screen.getByRole("button", { name: "보관함" }));
+    await waitFor(() => expect(api.listDecks).toHaveBeenCalledWith("archived"));
+    await waitFor(() => expect(screen.getByText("Alpha")).toBeTruthy());
+
+    const restoreBtn = await screen.findByRole("button", { name: "복원" });
+    fireEvent.click(restoreBtn);
+    await waitFor(() => expect(api.restore).toHaveBeenCalledWith("a"));
   });
 });

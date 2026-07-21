@@ -6,12 +6,14 @@ export function DeckCard({
   onPlay,
   onVersions,
   onDelete,
+  onRestore,
   archived,
 }: {
   deck: Deck;
   onPlay: () => void;
   onVersions: () => void;
   onDelete: () => void;
+  onRestore?: () => void;
   archived?: boolean;
 }) {
   const [hover, setHover] = useState(false);
@@ -138,6 +140,16 @@ export function DeckCard({
           <button className="btn-ghost" onClick={onVersions} style={{ padding: "9px 14px", fontSize: 13 }}>
             버전
           </button>
+          {archived && onRestore && (
+            <button
+              className="btn-ghost"
+              onClick={onRestore}
+              style={{ padding: "9px 14px", fontSize: 13 }}
+              title="활성으로 복원"
+            >
+              복원
+            </button>
+          )}
           <button
             className="btn-ghost"
             onClick={onDelete}
