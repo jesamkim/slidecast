@@ -61,7 +61,15 @@ def handler(event, context=None):
             CacheControl="public, max-age=31536000, immutable",
         )
         item = repo.get(deck_id)
+        now = now_iso()
         if item is None:
-            item = dm.new_deck_item(deck_id, deck_id, [], now_iso())
-        item = dm.upsert_version(item, n, tkey, len(html), now_iso())
+            item = dm.new_deck_item(deck_id, deck_id, [], now)
+        # API is the owner of version creation; we just fill in thumbnail
+        # metadata on the existing pending version. If the S3 event races
+        # ahead of the API write, fall back to upsert_version so no data
+        # is lost.
+        try:
+            item = dm.set_version_thumbnail(item, n, tkey, len(html), now)
+        except KeyError:
+            item = dm.upsert_version(item, n, tkey, len(html), now)
         repo.put(item)

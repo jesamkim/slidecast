@@ -67,6 +67,52 @@ def test_handler_appends_version(monkeypatch):
 
 
 @mock_aws
+def test_handler_fills_pending_version_thumbnail(monkeypatch):
+    """When the API has already recorded a pending version (thumbnailKey=None),
+    the thumbnail Lambda fills the existing record rather than creating a new
+    one (which would clobber createdAt)."""
+    res = boto3.resource("dynamodb", region_name="us-east-1")
+    s3 = boto3.client("s3", region_name="us-east-1")
+    res.create_table(
+        TableName=TABLE,
+        AttributeDefinitions=[
+            {"AttributeName": "deckId", "AttributeType": "S"},
+            {"AttributeName": "status", "AttributeType": "S"},
+            {"AttributeName": "updatedAt", "AttributeType": "S"},
+        ],
+        KeySchema=[{"AttributeName": "deckId", "KeyType": "HASH"}],
+        GlobalSecondaryIndexes=[{
+            "IndexName": "byUpdatedAt",
+            "KeySchema": [
+                {"AttributeName": "status", "KeyType": "HASH"},
+                {"AttributeName": "updatedAt", "KeyType": "RANGE"},
+            ],
+            "Projection": {"ProjectionType": "ALL"},
+        }],
+        BillingMode="PAY_PER_REQUEST",
+    )
+    s3.create_bucket(Bucket=BUCKET)
+    s3.put_object(Bucket=BUCKET, Key="slides/beta/v1/index.html", Body=b"<html>b</html>")
+    monkeypatch.setenv("TABLE_NAME", TABLE)
+    monkeypatch.setenv("BUCKET_NAME", BUCKET)
+    t = _load_thumbnail_handler()
+    monkeypatch.setattr(t, "capture_png", lambda html: b"\x89PNG")
+    from ddb import DeckRepo
+    from deck_model import new_deck_item, add_pending_version
+    repo = DeckRepo(TABLE, res)
+    # Simulate what the API POST now writes: a pending version.
+    item = add_pending_version(new_deck_item("beta", "Beta", [], "t0"), 1, "t1")
+    repo.put(item)
+    event = {"Records": [{"s3": {"bucket": {"name": BUCKET}, "object": {"key": "slides/beta/v1/index.html"}}}]}
+    t.handler(event)
+    got = repo.get("beta")
+    v1 = next(v for v in got["versions"] if v["n"] == 1)
+    assert v1["thumbnailKey"] == "thumbnails/beta/v1.png"
+    assert v1["sizeBytes"] == len(b"<html>b</html>")
+    assert v1["createdAt"] == "t1"  # preserved from pending record
+
+
+@mock_aws
 def test_handler_respects_parsed_version_out_of_order(monkeypatch):
     res = boto3.resource("dynamodb", region_name="us-east-1")
     s3 = boto3.client("s3", region_name="us-east-1")

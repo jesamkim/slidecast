@@ -35,6 +35,7 @@ class SlidecastStack(Stack):
 
         table = ddb.Table(
             self, "SlideDecks",
+            table_name="SlideDecks",
             partition_key=ddb.Attribute(name="deckId", type=ddb.AttributeType.STRING),
             billing_mode=ddb.BillingMode.PAY_PER_REQUEST,
             removal_policy=RemovalPolicy.RETAIN,
@@ -115,11 +116,22 @@ class SlidecastStack(Stack):
             jwt_audience=[user_pool_client.user_pool_client_id],
         )
         http_api = apigw.HttpApi(self, "HttpApi", default_authorizer=authorizer)
-        http_api.add_routes(
-            path="/api/{proxy+}",
-            methods=[apigw.HttpMethod.ANY],
-            integration=integrations.HttpLambdaIntegration("ApiInt", api_fn),
-        )
+        api_integration = integrations.HttpLambdaIntegration("ApiInt", api_fn)
+        # Register explicit routes so API Gateway populates pathParameters
+        # with the `id` key. A single {proxy+} catch-all would only ever
+        # expose pathParameters["proxy"], causing every per-deck route to
+        # 404 in the handler.
+        for route_path in (
+            "/api/decks",
+            "/api/decks/{id}",
+            "/api/decks/{id}/current",
+            "/api/decks/{id}/restore",
+        ):
+            http_api.add_routes(
+                path=route_path,
+                methods=[apigw.HttpMethod.ANY],
+                integration=api_integration,
+            )
 
         oac = cf.S3OriginAccessControl(self, "Oac")
         s3_origin = origins.S3BucketOrigin.with_origin_access_control(bucket, origin_access_control=oac)

@@ -35,7 +35,9 @@ def _capture_local(html: bytes) -> bytes:
 
 def resolve_target(repo: DeckRepo, deck_id: str) -> int:
     item = repo.get(deck_id)
-    return (item["currentVersion"] + 1) if item else 1
+    # Monotonic: max existing version + 1. Prevents overwriting an
+    # immutable prior version after rolling currentVersion back.
+    return dm.next_version(item) if item else 1
 
 
 def append(html_path, table=DEFAULT_TABLE, bucket=None, dynamodb=None, s3=None,
@@ -61,7 +63,9 @@ def append(html_path, table=DEFAULT_TABLE, bucket=None, dynamodb=None, s3=None,
     item = repo.get(deck_id)
     if item is None:
         item = dm.new_deck_item(deck_id, title or deck_id, tags or [], now_iso())
-    item = dm.add_version(item, tkey, len(html), now_iso())
+    # Use upsert_version with the pre-resolved n so post-rollback appends
+    # land at max+1 rather than overwriting an existing immutable version.
+    item = dm.upsert_version(item, n, tkey, len(html), now_iso())
     repo.put(item)
     return deck_id, n
 

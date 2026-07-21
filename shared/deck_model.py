@@ -15,6 +15,75 @@ def thumb_key(deck_id: str, n: int) -> str:
     return f"thumbnails/{deck_id}/v{n}.png"
 
 
+def next_version(item: dict) -> int:
+    """Monotonic next version number: max existing n + 1 (or 1 if none).
+
+    Using max-of-history (rather than currentVersion+1) preserves version
+    immutability across rollbacks — after rolling currentVersion back to v1,
+    the next upload becomes v3, not an overwrite of v2.
+    """
+    return max((v["n"] for v in item.get("versions", [])), default=0) + 1
+
+
+def add_pending_version(item: dict, n: int, now_iso: str) -> dict:
+    """Append a placeholder version record (thumbnail/size not yet known),
+    set currentVersion=n, and bump updatedAt. Returns a NEW dict.
+
+    Note: this is called by the API BEFORE the client uploads to S3.
+    If the client abandons the upload the placeholder version will point at
+    a missing S3 object; a subsequent PUT re-issues the same slot and the
+    thumbnail Lambda idempotently fills the metadata. Acceptable for a
+    personal tool.
+    """
+    new_item = deepcopy(item)
+    record = {
+        "n": n,
+        "createdAt": now_iso,
+        "thumbnailKey": None,
+        "sizeBytes": None,
+        "slideCount": None,
+    }
+    existing = next((v for v in new_item["versions"] if v["n"] == n), None)
+    if existing is None:
+        new_item["versions"].append(record)
+    else:
+        # Preserve original createdAt on re-issue.
+        record["createdAt"] = existing.get("createdAt", now_iso)
+        idx = new_item["versions"].index(existing)
+        new_item["versions"][idx] = record
+    new_item["currentVersion"] = n
+    new_item["updatedAt"] = now_iso
+    return new_item
+
+
+def set_version_thumbnail(
+    item: dict,
+    n: int,
+    thumbnail_key: str,
+    size_bytes: int,
+    now_iso: str,
+    slide_count: Optional[int] = None,
+) -> dict:
+    """Fill thumbnailKey/sizeBytes on an EXISTING version n. Returns a NEW dict.
+
+    Raises KeyError if version n does not exist; callers that must tolerate
+    the race where the S3 event beats the API write should fall back to
+    upsert_version.
+    """
+    new_item = deepcopy(item)
+    idx = next((i for i, v in enumerate(new_item["versions"]) if v["n"] == n), None)
+    if idx is None:
+        raise KeyError(f"version {n} not present")
+    record = dict(new_item["versions"][idx])
+    record["thumbnailKey"] = thumbnail_key
+    record["sizeBytes"] = size_bytes
+    if slide_count is not None:
+        record["slideCount"] = slide_count
+    new_item["versions"][idx] = record
+    new_item["updatedAt"] = now_iso
+    return new_item
+
+
 def new_deck_item(deck_id: str, title: str, tags: list, now_iso: str) -> dict:
     return {
         "deckId": deck_id,

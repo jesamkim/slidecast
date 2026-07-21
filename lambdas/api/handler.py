@@ -77,7 +77,7 @@ def handler(event, context=None):
         status = qs.get("status") or "active"
         return _resp(200, {"decks": repo.list_by_status(status)})
 
-    if method == "GET" and _pid(event) and path.endswith(_pid(event)):
+    if method == "GET" and _pid(event) and path.endswith("/" + _pid(event)):
         item = repo.get(_pid(event))
         if not item:
             return _resp(404, {"error": "not found"})
@@ -89,10 +89,15 @@ def handler(event, context=None):
         body = _body(event)
         deck_id = slugify(body["filename"])
         item = repo.get(deck_id)
+        now = now_iso()
         if item is None:
-            item = dm.new_deck_item(deck_id, body.get("title", deck_id), body.get("tags", []), now_iso())
-            repo.put(item)
-        n = item["currentVersion"] + 1
+            item = dm.new_deck_item(deck_id, body.get("title", deck_id), body.get("tags", []), now)
+        n = dm.next_version(item)
+        # API owns version creation: persist the pending version BEFORE
+        # returning the presigned URL, so a deck without a completed thumbnail
+        # is still playable / recoverable.
+        item = dm.add_pending_version(item, n, now)
+        repo.put(item)
         return _resp(200, {"deckId": deck_id, "version": n, "uploadUrl": _upload_url(deck_id, n)})
 
     if method == "PUT" and path.endswith("/current"):
@@ -106,19 +111,22 @@ def handler(event, context=None):
         repo.put(updated)
         return _resp(200, {"ok": True})
 
-    if method == "PUT" and _pid(event):
-        item = repo.get(_pid(event))
-        if not item:
-            return _resp(404, {"error": "not found"})
-        n = item["currentVersion"] + 1
-        return _resp(200, {"deckId": item["deckId"], "version": n, "uploadUrl": _upload_url(item["deckId"], n)})
-
     if method == "POST" and path.endswith("/restore"):
         item = repo.get(_pid(event))
         if not item:
             return _resp(404, {"error": "not found"})
         repo.put(dm.set_status(item, "active", now_iso()))
         return _resp(200, {"ok": True})
+
+    if method == "PUT" and _pid(event):
+        item = repo.get(_pid(event))
+        if not item:
+            return _resp(404, {"error": "not found"})
+        now = now_iso()
+        n = dm.next_version(item)
+        item = dm.add_pending_version(item, n, now)
+        repo.put(item)
+        return _resp(200, {"deckId": item["deckId"], "version": n, "uploadUrl": _upload_url(item["deckId"], n)})
 
     if method == "DELETE" and _pid(event):
         deck_id = _pid(event)

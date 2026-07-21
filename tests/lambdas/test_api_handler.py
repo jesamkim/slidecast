@@ -48,13 +48,46 @@ def test_post_creates_deck_and_returns_upload_url(monkeypatch):
     _setup(res, s3)
     monkeypatch.setenv("TABLE_NAME", TABLE)
     monkeypatch.setenv("BUCKET_NAME", BUCKET)
-    import handler as h
+    import importlib, handler as h
+    importlib.reload(h)
     resp = h.handler(_evt("POST", "/api/decks", {"filename": "My Deck.html", "title": "My Deck"}))
     body = json.loads(resp["body"])
     assert resp["statusCode"] == 200
     assert body["deckId"] == "my-deck"
     assert body["version"] == 1
     assert "uploadUrl" in body
+    # POST must persist a pending version so the deck is recoverable even
+    # if the thumbnail Lambda never runs.
+    from ddb import DeckRepo
+    item = DeckRepo(TABLE, res).get("my-deck")
+    assert item["currentVersion"] == 1
+    assert item["versions"][0]["n"] == 1
+    assert item["versions"][0]["thumbnailKey"] is None
+
+
+@mock_aws
+def test_put_after_rollback_yields_monotonic_version(monkeypatch):
+    res = boto3.resource("dynamodb", region_name="us-east-1")
+    s3 = boto3.client("s3", region_name="us-east-1")
+    _setup(res, s3)
+    monkeypatch.setenv("TABLE_NAME", TABLE)
+    monkeypatch.setenv("BUCKET_NAME", BUCKET)
+    import importlib, handler as h
+    importlib.reload(h)
+    from ddb import DeckRepo
+    from deck_model import new_deck_item, add_version, set_current
+    repo = DeckRepo(TABLE, res)
+    item = add_version(new_deck_item("d", "D", [], "t0"), "k1", 1, "t1")
+    item = add_version(item, "k2", 1, "t2")           # now has v1, v2, current=2
+    item = set_current(item, 1, "t3")                  # rolled back to v1
+    repo.put(item)
+    resp = h.handler(_evt("PUT", "/api/decks/d", path_params={"id": "d"}))
+    body = json.loads(resp["body"])
+    # Must be v3, not overwriting v2.
+    assert body["version"] == 3
+    got = repo.get("d")
+    ns = sorted(v["n"] for v in got["versions"])
+    assert ns == [1, 2, 3]
 
 
 @mock_aws

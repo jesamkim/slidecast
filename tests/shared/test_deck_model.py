@@ -2,8 +2,10 @@ import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "shared"))
 from deck_model import (
     slide_key, thumb_key, new_deck_item, add_version, upsert_version,
-    set_current, set_status,
+    set_current, set_status, next_version, add_pending_version,
+    set_version_thumbnail,
 )
+import pytest
 
 def test_keys():
     assert slide_key("roadmap", 2) == "slides/roadmap/v2/index.html"
@@ -62,6 +64,48 @@ def test_set_current_valid_and_invalid():
         assert False, "expected ValueError"
     except ValueError:
         pass
+
+def test_next_version_monotonic():
+    item = new_deck_item("r", "R", [], "t0")
+    assert next_version(item) == 1
+    item = add_version(item, "k1", 1, "t1")   # n=1
+    item = add_version(item, "k2", 1, "t2")   # n=2
+    assert next_version(item) == 3
+    # Roll back currentVersion to 1: next_version stays at 3 (max+1),
+    # protecting v2 from being overwritten.
+    rolled = set_current(item, 1, "t3")
+    assert rolled["currentVersion"] == 1
+    assert next_version(rolled) == 3
+
+
+def test_add_pending_version_appends_and_bumps_current():
+    item = new_deck_item("r", "R", [], "t0")
+    p = add_pending_version(item, 1, "t1")
+    assert p["currentVersion"] == 1
+    assert p["versions"][0] == {
+        "n": 1, "createdAt": "t1",
+        "thumbnailKey": None, "sizeBytes": None, "slideCount": None,
+    }
+    assert item["versions"] == []  # immutable
+    # Re-issuing the same slot preserves original createdAt.
+    p2 = add_pending_version(p, 1, "t2")
+    assert p2["versions"][0]["createdAt"] == "t1"
+    assert p2["updatedAt"] == "t2"
+
+
+def test_set_version_thumbnail_fills_pending():
+    item = new_deck_item("r", "R", [], "t0")
+    item = add_pending_version(item, 2, "t1")
+    filled = set_version_thumbnail(item, 2, "thumbnails/r/v2.png", 42, "t2")
+    v2 = filled["versions"][0]
+    assert v2["thumbnailKey"] == "thumbnails/r/v2.png"
+    assert v2["sizeBytes"] == 42
+    assert v2["createdAt"] == "t1"
+    assert filled["updatedAt"] == "t2"
+    # Missing version raises KeyError.
+    with pytest.raises(KeyError):
+        set_version_thumbnail(filled, 99, "x", 1, "t3")
+
 
 def test_set_status():
     item = new_deck_item("r", "R", [], "t0")

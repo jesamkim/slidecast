@@ -40,6 +40,21 @@ def test_cognito_hosted_ui_domain_exists():
     assert t.find_resources("AWS::Cognito::UserPoolDomain") != {}
 
 
+def test_api_routes_have_explicit_id_param():
+    t = _template()
+    routes = t.find_resources("AWS::ApiGatewayV2::Route")
+    keys = [r["Properties"].get("RouteKey", "") for r in routes.values()]
+    assert any("/api/decks/{id}" in k for k in keys), keys
+    assert any(k.endswith("/api/decks") for k in keys), keys
+    assert any("/api/decks/{id}/current" in k for k in keys), keys
+    assert any("/api/decks/{id}/restore" in k for k in keys), keys
+
+
+def test_dynamodb_table_name_is_fixed():
+    t = _template()
+    t.has_resource_properties("AWS::DynamoDB::Table", {"TableName": "SlideDecks"})
+
+
 def test_no_public_ingress_alb():
     t = _template()
     assert t.find_resources("AWS::ElasticLoadBalancingV2::LoadBalancer") == {}
