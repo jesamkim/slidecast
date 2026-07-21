@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type { Deck, Group } from "../types";
 import { formatDate } from "../format";
 
@@ -28,12 +28,17 @@ export function DeckCard({
   const [aliasDraft, setAliasDraft] = useState(deck.alias ?? "");
   const [aliasError, setAliasError] = useState<string | null>(null);
   const [aliasBusy, setAliasBusy] = useState(false);
+  // Enter (onKeyDown) and click-away (onBlur) can both trigger a submit; this
+  // ref guards against the Enter-then-blur double fire (unmount fires blur).
+  const submittingAlias = useRef(false);
   const cur = deck.versions.find((v) => v.n === deck.currentVersion);
   const alias = deck.alias ?? null;
   const group = deck.group ?? null;
 
   const submitAlias = async () => {
     if (!onSetAlias) return;
+    // Enter already kicked off (or completed) a submit; skip the blur echo.
+    if (submittingAlias.current) return;
     const raw = aliasDraft.trim();
     const next = raw === "" ? null : raw;
     if (next === alias) {
@@ -41,6 +46,7 @@ export function DeckCard({
       setAliasError(null);
       return;
     }
+    submittingAlias.current = true;
     setAliasBusy(true);
     setAliasError(null);
     try {
@@ -52,6 +58,7 @@ export function DeckCard({
       else if (msg.includes("400")) setAliasError("잘못된 alias 형식");
       else setAliasError("alias 설정 실패");
     } finally {
+      submittingAlias.current = false;
       setAliasBusy(false);
     }
   };
