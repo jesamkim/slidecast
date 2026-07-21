@@ -162,6 +162,8 @@ class SlidecastStack(Stack):
             "/api/decks/{id}/share",
             "/api/decks/{id}/share/republish",
             "/api/decks/{id}/download",
+            "/api/decks/{id}/views",
+            "/api/decks/{id}/views/export",
         ):
             http_api.add_routes(
                 path=route_path,
