@@ -33,6 +33,10 @@ RUN dnf install -y \
         nspr \
         nss \
         pango \
+        fontconfig \
+        google-noto-sans-cjk-fonts \
+        google-noto-sans-fonts \
+    && fc-cache -f \
     && dnf clean all
 
 # Install Python deps. Pin playwright to a version whose bundled chromium

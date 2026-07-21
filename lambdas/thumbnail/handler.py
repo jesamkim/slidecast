@@ -43,8 +43,12 @@ def capture_png(html_bytes: bytes) -> bytes:
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True, **launch_kwargs)
         page = browser.new_page(viewport={"width": 1920, "height": 1080})
-        page.goto(f"file://{html_path}")
-        page.wait_for_timeout(1200)
+        page.goto(f"file://{html_path}", wait_until="networkidle")
+        try:
+            page.evaluate("document.fonts.ready")
+        except Exception:
+            pass
+        page.wait_for_timeout(800)
         png = page.screenshot(type="png")
         browser.close()
     return png
@@ -70,14 +74,16 @@ def capture_pdf(html_bytes: bytes) -> bytes:
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True, **launch_kwargs)
         page = browser.new_page()
-        page.goto(f"file://{html_path}")
-        page.wait_for_timeout(1200)
-        data = page.pdf(
-            landscape=True,
-            print_background=True,
-            width="1280px",
-            height="720px",
-        )
+        page.goto(f"file://{html_path}", wait_until="networkidle")
+        try:
+            page.evaluate("document.fonts.ready")
+        except Exception:
+            pass
+        page.wait_for_timeout(800)
+        # Let the deck's own @page CSS (html-slide ships size:1920px 1080px)
+        # drive PDF geometry; overriding width/height crams 1920px slides
+        # into a smaller page and causes overflow.
+        data = page.pdf(print_background=True, prefer_css_page_size=True)
         browser.close()
     return data
 
