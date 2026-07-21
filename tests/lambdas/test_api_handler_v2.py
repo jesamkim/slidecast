@@ -83,6 +83,72 @@ def test_alias_set_conflict_reserved_and_resolve(monkeypatch):
 
 
 @mock_aws
+def test_alias_reservation_created_and_replace_releases_old(monkeypatch):
+    res = boto3.resource("dynamodb", region_name="us-east-1")
+    s3 = boto3.client("s3", region_name="us-east-1")
+    _setup(res, s3)
+    monkeypatch.setenv("TABLE_NAME", TABLE); monkeypatch.setenv("BUCKET_NAME", BUCKET)
+    import handler as h; importlib.reload(h)
+    from ddb import DeckRepo
+    from deck_model import new_deck_item, add_version, alias_pk
+    repo = DeckRepo(TABLE, res)
+    repo.put(add_version(new_deck_item("a", "A", [], "t"), "k", 1, "t1"))
+    repo.put(add_version(new_deck_item("b", "B", [], "t"), "k", 1, "t1"))
+    # Set alias 'road' on a -> reservation created.
+    assert h.handler(_evt("PUT", "/api/decks/a/alias", {"alias": "road"}, pp={"id": "a"}))["statusCode"] == 200
+    reservation = repo.get(alias_pk("road"))
+    assert reservation is not None and reservation["ownerDeckId"] == "a"
+    # b can't take it.
+    assert h.handler(_evt("PUT", "/api/decks/b/alias", {"alias": "road"}, pp={"id": "b"}))["statusCode"] == 409
+    # Change a's alias -> old reservation released, new one created.
+    assert h.handler(_evt("PUT", "/api/decks/a/alias", {"alias": "map"}, pp={"id": "a"}))["statusCode"] == 200
+    assert repo.get(alias_pk("road")) is None
+    assert repo.get(alias_pk("map"))["ownerDeckId"] == "a"
+    # b can now take 'road'.
+    assert h.handler(_evt("PUT", "/api/decks/b/alias", {"alias": "road"}, pp={"id": "b"}))["statusCode"] == 200
+
+
+@mock_aws
+def test_alias_clear_releases_reservation(monkeypatch):
+    res = boto3.resource("dynamodb", region_name="us-east-1")
+    s3 = boto3.client("s3", region_name="us-east-1")
+    _setup(res, s3)
+    monkeypatch.setenv("TABLE_NAME", TABLE); monkeypatch.setenv("BUCKET_NAME", BUCKET)
+    import handler as h; importlib.reload(h)
+    from ddb import DeckRepo
+    from deck_model import new_deck_item, add_version, alias_pk
+    repo = DeckRepo(TABLE, res)
+    repo.put(add_version(new_deck_item("a", "A", [], "t"), "k", 1, "t1"))
+    repo.put(add_version(new_deck_item("b", "B", [], "t"), "k", 1, "t1"))
+    h.handler(_evt("PUT", "/api/decks/a/alias", {"alias": "road"}, pp={"id": "a"}))
+    # Clear via null alias.
+    assert h.handler(_evt("PUT", "/api/decks/a/alias", {"alias": None}, pp={"id": "a"}))["statusCode"] == 200
+    assert repo.get(alias_pk("road")) is None
+    assert repo.get("a").get("alias") is None
+    # b can now take it.
+    assert h.handler(_evt("PUT", "/api/decks/b/alias", {"alias": "road"}, pp={"id": "b"}))["statusCode"] == 200
+
+
+@mock_aws
+def test_alias_hard_delete_releases_reservation(monkeypatch):
+    res = boto3.resource("dynamodb", region_name="us-east-1")
+    s3 = boto3.client("s3", region_name="us-east-1")
+    _setup(res, s3)
+    monkeypatch.setenv("TABLE_NAME", TABLE); monkeypatch.setenv("BUCKET_NAME", BUCKET)
+    import handler as h; importlib.reload(h)
+    from ddb import DeckRepo
+    from deck_model import new_deck_item, add_version, alias_pk
+    repo = DeckRepo(TABLE, res)
+    repo.put(add_version(new_deck_item("a", "A", [], "t"), "k", 1, "t1"))
+    repo.put(add_version(new_deck_item("b", "B", [], "t"), "k", 1, "t1"))
+    h.handler(_evt("PUT", "/api/decks/a/alias", {"alias": "road"}, pp={"id": "a"}))
+    r = h.handler(_evt("DELETE", "/api/decks/a", pp={"id": "a"}, qs={"hard": "true"}))
+    assert r["statusCode"] == 200
+    assert repo.get(alias_pk("road")) is None
+    assert h.handler(_evt("PUT", "/api/decks/b/alias", {"alias": "road"}, pp={"id": "b"}))["statusCode"] == 200
+
+
+@mock_aws
 def test_alias_empty_string_rejected(monkeypatch):
     res = boto3.resource("dynamodb", region_name="us-east-1")
     s3 = boto3.client("s3", region_name="us-east-1")

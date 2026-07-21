@@ -84,6 +84,51 @@ def test_append_alias_conflict_raises():
 
 
 @mock_aws
+def test_append_replaces_alias_releases_old():
+    res = boto3.resource("dynamodb", region_name="us-east-1")
+    s3 = boto3.client("s3", region_name="us-east-1")
+    _mk(res, s3)
+    import slidecast_append as sa
+    from ddb import DeckRepo
+    import deck_model as dm
+
+    stub = lambda html: b"PNG"
+    p1 = _write("first.html")
+    p2 = _write("second.html")
+    sa.append(p1, TABLE, BUCKET, dynamodb=res, s3=s3, capture=stub, alias="road")
+    repo = DeckRepo(TABLE, res)
+    assert repo.get(dm.alias_pk("road"))["ownerDeckId"] == "first"
+    # Change first's alias to 'map' -> 'road' released, 'map' reserved.
+    sa.append(p1, TABLE, BUCKET, dynamodb=res, s3=s3, capture=stub, alias="map")
+    assert repo.get(dm.alias_pk("road")) is None
+    assert repo.get(dm.alias_pk("map"))["ownerDeckId"] == "first"
+    # Second can now take 'road'.
+    sa.append(p2, TABLE, BUCKET, dynamodb=res, s3=s3, capture=stub, alias="road")
+    assert repo.get("second")["alias"] == "road"
+
+
+@mock_aws
+def test_hard_delete_releases_alias():
+    res = boto3.resource("dynamodb", region_name="us-east-1")
+    s3 = boto3.client("s3", region_name="us-east-1")
+    _mk(res, s3)
+    import slidecast_append as sa
+    from ddb import DeckRepo
+    import deck_model as dm
+
+    stub = lambda html: b"PNG"
+    p1 = _write("first.html")
+    sa.append(p1, TABLE, BUCKET, dynamodb=res, s3=s3, capture=stub, alias="road")
+    sa.hard_delete("first", TABLE, BUCKET, dynamodb=res, s3=s3)
+    repo = DeckRepo(TABLE, res)
+    assert repo.get(dm.alias_pk("road")) is None
+    # Alias is reusable.
+    p2 = _write("second.html")
+    sa.append(p2, TABLE, BUCKET, dynamodb=res, s3=s3, capture=stub, alias="road")
+    assert repo.get("second")["alias"] == "road"
+
+
+@mock_aws
 def test_append_reserved_alias_raises():
     res = boto3.resource("dynamodb", region_name="us-east-1")
     s3 = boto3.client("s3", region_name="us-east-1")
