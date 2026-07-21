@@ -5,8 +5,9 @@ set -euo pipefail
 # Reads config from cdk-outputs.json (produced by scripts/deploy.sh),
 # builds the React viewer with Vite env vars injected, and syncs the
 # resulting dist/ to the S3 bucket root. The sync explicitly excludes
-# user data prefixes (slides/, thumbnails/, web/) so --delete cannot
-# wipe uploaded decks.
+# every user-data prefix (slides/, thumbnails/, web/, public/, pdfs/) so
+# --delete only touches the viewer's own static assets and can never wipe
+# uploaded decks, shared public links, or pre-generated PDFs.
 
 export AWS_PROFILE=profile2
 export AWS_REGION=us-east-1
@@ -55,12 +56,14 @@ if [[ ! -f dist/index.html ]]; then
   exit 1
 fi
 
-echo "Syncing viewer/dist to s3://$BUCKET/ (protecting slides/, thumbnails/, web/)"
+echo "Syncing viewer/dist to s3://$BUCKET/ (protecting slides/, thumbnails/, web/, public/, pdfs/)"
 aws s3 sync dist/ "s3://$BUCKET/" \
   --delete \
   --exclude "slides/*" \
   --exclude "thumbnails/*" \
-  --exclude "web/*"
+  --exclude "web/*" \
+  --exclude "public/*" \
+  --exclude "pdfs/*"
 
 # Best-effort CloudFront invalidation so a redeploy is immediately visible.
 if [[ -n "${DIST_ID:-}" ]]; then

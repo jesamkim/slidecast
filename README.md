@@ -70,10 +70,26 @@ Cognito User Pool (셀프가입 차단, 관리자 사용자 1개) + Hosted UI
 - **공유**: 덱 카드의 "공유" 버튼 → 모달에서 공개 토글. ON 시 추측 불가 토큰이 발급되고
   `https://<도메인>/p/{token}`을 **로그인 없이** 열면 그 덱의 공개 스냅샷이 풀스크린 재생된다.
   공유 시점 현재 버전 HTML을 `public/{token}/index.html`로 복사(no-cache). OFF 시 복사본·토큰·예약
-  삭제로 링크 즉시 무효화, 재공개 시 새 토큰. 수정본은 "재발행"으로만 반영.
+  삭제로 링크 즉시 무효화, 재공개 시 새 토큰. 수정본은 "재발행"으로만 반영(같은 토큰 유지 —
+  누적 조회수도 그대로 보존).
 - **다운로드**: 로그인 사용자가 카드/버전 메뉴에서 원본 `.html` 또는 PDF 다운로드. PDF는 업로드 시
   썸네일 Lambda가 사전 생성(`pdfs/{deckId}/v{n}.pdf`). 프라이빗 S3 → presigned URL(attachment, 300s)로만
   제공. PDF 미준비면 옵션 비활성. 공개 페이지에는 다운로드 없음(보기 전용).
+
+## 조회 트래킹 (KPI 증빙)
+
+- **집계**: 공개 링크(`GET /api/public/{token}`)를 열 때마다 `PUBLIC#{token}` 아이템의
+  `viewCount`(총계)와 `viewsByDay`(UTC `YYYY-MM-DD`별 맵)를 단일 UpdateItem으로 원자 증가.
+  집계 실패는 격리되어(try/except) 실패해도 공개 재생은 항상 성공한다. 재발행 시 조회수 보존,
+  공개 해제(unshare) 후 재공유는 새 토큰이라 0부터 시작.
+- **통계 조회**: `GET /api/decks/{id}/views`(JWT) → `{total, byDay:[{date,count}]}`. 공유 모달이
+  총 조회수와 일별 막대그래프(라이브러리 없는 인라인 SVG, 막대 폭 자동 조정)를 렌더. 갤러리
+  카드에는 공개 덱만 조회수 배지(목록 응답에 `viewCount` 포함 — 카드별 추가 호출 없음).
+- **내보내기**: `GET /api/decks/{id}/views/export?format=csv|json`(JWT)이 파일 바디를 직접 반환
+  (`Content-Disposition: attachment`). 공유 모달의 "CSV / JSON 내보내기" 버튼으로 다운로드.
+  조회 통계·export는 JWT 라우트 전용 — 공개 뷰어에는 노출되지 않는다(공개 응답은 `{title,htmlUrl}`만).
+- **알려진 한계(KPI 사용 시 유의)**: 슬랙·카카오톡 링크 프리뷰·검색 크롤러 등 **봇 조회도 포함**
+  집계된다(순수 사람 조회수 아님). 세션 기반 중복 제거 없음. 시각은 모두 UTC 기준.
 
 ## API (요약)
 
@@ -83,6 +99,7 @@ Cognito User Pool (셀프가입 차단, 관리자 사용자 1개) + Hosted UI
 - alias 리졸브: `GET /api/resolve/{alias}`
 - 공유: `PUT|DELETE /api/decks/{id}/share`, `POST /api/decks/{id}/share/republish`
 - 다운로드: `GET /api/decks/{id}/download?format=html|pdf&version={n}` (presigned)
+- 조회 통계: `GET /api/decks/{id}/views`, `GET /api/decks/{id}/views/export?format=csv|json` (GET 전용)
 - 공개(**무인증** — 유일한 무인증 라우트): `GET /api/public/{token}` → `{title, htmlUrl}`만 반환
 - 그 외 모든 `/api`는 Cognito JWT authorizer 뒤.
 - 클라이언트 라우팅(`/s/{alias}`, `/p/{token}`)은 CloudFront Function(viewer-request)이
@@ -136,6 +153,9 @@ python3 skill/slidecast-append/slidecast_append.py --del-group marketing
 # public 공유 (발급된 /p/{token} 링크 출력) / 공유 해제
 python3 skill/slidecast-append/slidecast_append.py --share <deckId>
 python3 skill/slidecast-append/slidecast_append.py --unshare <deckId>
+
+# 공개 링크 조회수 확인(총계 + 일별)
+python3 skill/slidecast-append/slidecast_append.py --views <deckId>
 ```
 
 ## 테스트
