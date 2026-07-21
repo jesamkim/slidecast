@@ -192,6 +192,15 @@ def unshare(deck_id, table=DEFAULT_TABLE, bucket=None, dynamodb=None, s3=None) -
     repo.put(dm.set_public_token(item, None, now_iso()))
 
 
+def views(deck_id, table=DEFAULT_TABLE, dynamodb=None) -> dict:
+    repo = DeckRepo(table, dynamodb or boto3.resource("dynamodb"))
+    item = repo.get(deck_id)
+    token = item.get("publicToken") if item else None
+    if not token:
+        return {"total": 0, "byDay": {}}
+    return repo.get_views(token)
+
+
 def hard_delete(deck_id, table=DEFAULT_TABLE, bucket=None, dynamodb=None, s3=None):
     bucket = bucket or os.environ["BUCKET_NAME"]
     s3 = s3 or boto3.client("s3")
@@ -224,6 +233,7 @@ def main():
     ap.add_argument("--hard", action="store_true")
     ap.add_argument("--share", metavar="DECK")
     ap.add_argument("--unshare", metavar="DECK")
+    ap.add_argument("--views", metavar="DECK")
     a = ap.parse_args()
     table = os.environ.get("SLIDECAST_TABLE", DEFAULT_TABLE)
     if a.rollback:
@@ -241,6 +251,12 @@ def main():
     if a.unshare:
         unshare(a.unshare, table)
         print(f"unshared: {a.unshare}")
+        return
+    if a.views:
+        stats = views(a.views, table)
+        print(f"total: {stats['total']}")
+        for day in sorted(stats["byDay"].keys()):
+            print(f"{day}: {stats['byDay'][day]}")
         return
     if a.new_group:
         gid = new_group(a.new_group, table)
