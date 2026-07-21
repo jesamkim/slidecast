@@ -42,6 +42,7 @@ def add_pending_version(item: dict, n: int, now_iso: str) -> dict:
         "thumbnailKey": None,
         "sizeBytes": None,
         "slideCount": None,
+        "pdfKey": None,
     }
     existing = next((v for v in new_item["versions"] if v["n"] == n), None)
     if existing is None:
@@ -95,6 +96,7 @@ def new_deck_item(deck_id: str, title: str, tags: list, now_iso: str) -> dict:
         "status": "active",
         "currentVersion": 0,
         "versions": [],
+        "publicToken": None,
         "createdAt": now_iso,
         "updatedAt": now_iso,
     }
@@ -223,6 +225,43 @@ def set_current(item: dict, n: int, now_iso: str) -> dict:
     new_item = deepcopy(item)
     new_item["currentVersion"] = n
     new_item["updatedAt"] = now_iso
+    return new_item
+
+
+def public_pk(token: str) -> str:
+    return f"PUBLIC#{token}"
+
+
+def new_public_reservation(token: str, deck_id: str, public_version: int, now_iso: str) -> dict:
+    """Reservation item that OWNS a public share token. Uniqueness is enforced
+    by conditional PutItem in the repo.
+
+    Deliberately does NOT carry status/updatedAt/alias attrs so it stays out
+    of the byUpdatedAt and byAlias GSIs; looked up by PK only (PUBLIC#{token}).
+    """
+    return {
+        "deckId": public_pk(token),
+        "type": "public",
+        "ownerDeckId": deck_id,
+        "publicVersion": public_version,
+        "createdAt": now_iso,
+    }
+
+
+def set_public_token(item: dict, token, now_iso: str) -> dict:
+    new_item = deepcopy(item)
+    new_item["publicToken"] = token
+    new_item["updatedAt"] = now_iso
+    return new_item
+
+
+def set_version_pdf(item: dict, n: int, pdf_key: str, now_iso: str) -> dict:
+    new_item = deepcopy(item)
+    for v in new_item["versions"]:
+        if v["n"] == n:
+            v["pdfKey"] = pdf_key
+            new_item["updatedAt"] = now_iso
+            break
     return new_item
 
 

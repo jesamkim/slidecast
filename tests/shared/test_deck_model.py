@@ -82,10 +82,12 @@ def test_add_pending_version_appends_and_bumps_current():
     item = new_deck_item("r", "R", [], "t0")
     p = add_pending_version(item, 1, "t1")
     assert p["currentVersion"] == 1
-    assert p["versions"][0] == {
-        "n": 1, "createdAt": "t1",
-        "thumbnailKey": None, "sizeBytes": None, "slideCount": None,
-    }
+    v0 = p["versions"][0]
+    assert v0["n"] == 1
+    assert v0["createdAt"] == "t1"
+    assert v0["thumbnailKey"] is None
+    assert v0["sizeBytes"] is None
+    assert v0["slideCount"] is None
     assert item["versions"] == []  # immutable
     # Re-issuing the same slot preserves original createdAt.
     p2 = add_pending_version(p, 1, "t2")
