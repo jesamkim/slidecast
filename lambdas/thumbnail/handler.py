@@ -58,14 +58,16 @@ def capture_png(html_bytes: bytes) -> bytes:
 
 
 def capture_pdf(html_bytes: bytes) -> bytes:
-    """Render the deck's first frame to a landscape PDF using headless Chromium.
+    """Render each slide as an on-screen screenshot and assemble a PDF.
 
-    Isolated from capture_png so tests can monkeypatch it independently.
-    Keeps the playwright import inside the function so the module remains
-    importable without playwright.
+    Uses screen media (not print emulation) so the exported PDF matches the
+    browser layout exactly, with step-build animations shown in their final
+    (fully revealed) state. Falls back to Chromium print-to-PDF for decks
+    that don't use the html-slide .slide/#stage structure.
     """
-    import tempfile
+    import tempfile, io
     from playwright.sync_api import sync_playwright
+    from PIL import Image
 
     with tempfile.NamedTemporaryFile(suffix=".html", delete=False) as f:
         f.write(html_bytes)
@@ -76,22 +78,53 @@ def capture_pdf(html_bytes: bytes) -> bytes:
         launch_kwargs["executable_path"] = exe
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True, **launch_kwargs)
-        page = browser.new_page()
+        page = browser.new_page(viewport={"width": 1920, "height": 1080}, device_scale_factor=1)
         page.goto(f"file://{html_path}", wait_until="load", timeout=15000)
-        # Give @font-face (bundled Noto CJK, embedded base64) a brief moment to apply.
-        # Do NOT wait for networkidle: html-slide decks animate continuously and never
-        # reach network idle, which would burn the whole Lambda timeout.
         try:
             page.evaluate("() => document.fonts && document.fonts.ready")
         except Exception:
             pass
         page.wait_for_timeout(1000)
-        # Let the deck's own @page CSS (html-slide ships size:1920px 1080px)
-        # drive PDF geometry; overriding width/height crams 1920px slides
-        # into a smaller page and causes overflow.
-        data = page.pdf(print_background=True, prefer_css_page_size=True)
+
+        n = page.evaluate("() => document.querySelectorAll('.slide').length")
+        stage = page.query_selector("#stage")
+        if not n or stage is None:
+            # Fallback: non-html-slide deck -> print-to-PDF honoring its @page.
+            data = page.pdf(print_background=True, prefer_css_page_size=True)
+            browser.close()
+            return data
+
+        # Neutralize the on-screen scale transform so #stage is captured 1:1 at 1920x1080.
+        page.evaluate("""() => {
+            const st = document.getElementById('stage');
+            if (st) { st.style.transform = 'none'; st.style.margin = '0'; }
+            const vp = document.getElementById('viewport');
+            if (vp) { vp.style.display = 'block'; }
+        }""")
+
+        shots = []
+        for i in range(n):
+            page.evaluate("""(idx) => {
+                const slides = [...document.querySelectorAll('.slide')];
+                slides.forEach((s, k) => s.classList.toggle('active', k === idx));
+                // reveal every step in the active slide (final animation state)
+                slides[idx].querySelectorAll('[data-step]').forEach(el => {
+                    el.classList.add('revealed');
+                    el.style.opacity = '1';
+                    el.style.transform = 'none';
+                    el.style.visibility = 'visible';
+                });
+            }""", i)
+            page.wait_for_timeout(300)  # let layout/reveal settle
+            st = page.query_selector("#stage")
+            shots.append(st.screenshot(type="png"))
         browser.close()
-    return data
+
+    # Assemble PNGs into a single PDF, one 1920x1080 page per slide.
+    images = [Image.open(io.BytesIO(b)).convert("RGB") for b in shots]
+    out = io.BytesIO()
+    images[0].save(out, format="PDF", save_all=True, append_images=images[1:], resolution=96.0)
+    return out.getvalue()
 
 
 def handler(event, context=None):
