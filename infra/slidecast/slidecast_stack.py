@@ -129,8 +129,8 @@ class SlidecastStack(Stack):
         thumb_fn = lambda_.DockerImageFunction(
             self, "ThumbFn",
             code=lambda_.DockerImageCode.from_image_asset(thumb_asset_path),
-            memory_size=2048,
-            timeout=Duration.seconds(60),
+            memory_size=3008,
+            timeout=Duration.seconds(120),
             environment={"TABLE_NAME": table.table_name, "BUCKET_NAME": bucket.bucket_name},
         )
         table.grant_read_write_data(thumb_fn)
