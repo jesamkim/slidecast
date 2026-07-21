@@ -143,6 +143,7 @@ class SlidecastStack(Stack):
         )
 
         CfnOutput(self, "DistributionDomain", value=distribution.distribution_domain_name)
+        CfnOutput(self, "DistributionId", value=distribution.distribution_id)
         CfnOutput(self, "UserPoolId", value=user_pool.user_pool_id)
         CfnOutput(self, "UserPoolClientId", value=user_pool_client.user_pool_client_id)
         CfnOutput(self, "BucketName", value=bucket.bucket_name)
