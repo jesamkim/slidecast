@@ -43,12 +43,15 @@ def capture_png(html_bytes: bytes) -> bytes:
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True, **launch_kwargs)
         page = browser.new_page(viewport={"width": 1920, "height": 1080})
-        page.goto(f"file://{html_path}", wait_until="networkidle")
+        page.goto(f"file://{html_path}", wait_until="load", timeout=15000)
+        # Give @font-face (bundled Noto CJK, embedded base64) a brief moment to apply.
+        # Do NOT wait for networkidle: html-slide decks animate continuously and never
+        # reach network idle, which would burn the whole Lambda timeout.
         try:
-            page.evaluate("document.fonts.ready")
+            page.evaluate("() => document.fonts && document.fonts.ready")
         except Exception:
             pass
-        page.wait_for_timeout(800)
+        page.wait_for_timeout(1000)
         png = page.screenshot(type="png")
         browser.close()
     return png
@@ -74,12 +77,15 @@ def capture_pdf(html_bytes: bytes) -> bytes:
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True, **launch_kwargs)
         page = browser.new_page()
-        page.goto(f"file://{html_path}", wait_until="networkidle")
+        page.goto(f"file://{html_path}", wait_until="load", timeout=15000)
+        # Give @font-face (bundled Noto CJK, embedded base64) a brief moment to apply.
+        # Do NOT wait for networkidle: html-slide decks animate continuously and never
+        # reach network idle, which would burn the whole Lambda timeout.
         try:
-            page.evaluate("document.fonts.ready")
+            page.evaluate("() => document.fonts && document.fonts.ready")
         except Exception:
             pass
-        page.wait_for_timeout(800)
+        page.wait_for_timeout(1000)
         # Let the deck's own @page CSS (html-slide ships size:1920px 1080px)
         # drive PDF geometry; overriding width/height crams 1920px slides
         # into a smaller page and causes overflow.
