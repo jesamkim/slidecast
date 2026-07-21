@@ -73,9 +73,73 @@ def handler(event, context=None):
     qs = event.get("queryStringParameters") or {}
     repo = _repo()
 
+    # --- groups ---
+    if method == "GET" and path == "/api/groups":
+        return _resp(200, {"groups": repo.list_groups()})
+
+    if method == "POST" and path == "/api/groups":
+        name = _body(event)["name"]
+        gid = slugify(name)
+        if repo.get(dm.group_pk(gid)) is not None:
+            return _resp(409, {"error": "group exists"})
+        repo.put(dm.new_group_item(gid, name, now_iso()))
+        return _resp(200, {"groupId": gid, "name": name})
+
+    if method == "DELETE" and "/api/groups/" in path:
+        gid = (event.get("pathParameters") or {}).get("groupId") or path.rsplit("/", 1)[-1]
+        for status in ("active", "archived"):
+            for d in repo.list_by_status(status):
+                if dm.deck_type(d) == "deck" and d.get("group") == gid:
+                    repo.put(dm.set_group(d, None, now_iso()))
+        repo.delete(dm.group_pk(gid))
+        return _resp(200, {"ok": True})
+
+    # --- resolve ---
+    if method == "GET" and "/api/resolve/" in path:
+        alias = (event.get("pathParameters") or {}).get("alias") or path.rsplit("/", 1)[-1]
+        item = repo.query_by_alias(alias)
+        if not item:
+            return _resp(404, {"error": "not found"})
+        for v in item["versions"]:
+            v["url"] = "/" + dm.slide_key(item["deckId"], v["n"])
+        return _resp(200, item)
+
+    # --- deck group/alias assignment (before generic PUT) ---
+    if method == "PUT" and path.endswith("/group"):
+        item = repo.get(_pid(event))
+        if not item:
+            return _resp(404, {"error": "not found"})
+        gid = _body(event).get("groupId")
+        if gid is not None and repo.get(dm.group_pk(gid)) is None:
+            return _resp(400, {"error": "group does not exist"})
+        repo.put(dm.set_group(item, gid, now_iso()))
+        return _resp(200, {"ok": True})
+
+    if method == "PUT" and path.endswith("/alias"):
+        item = repo.get(_pid(event))
+        if not item:
+            return _resp(404, {"error": "not found"})
+        raw = _body(event).get("alias")
+        if raw is None:
+            repo.put(dm.set_alias(item, None, now_iso()))
+            return _resp(200, {"ok": True})
+        alias = slugify(raw)
+        if not dm.is_valid_alias(alias):
+            return _resp(400, {"error": "invalid or reserved alias"})
+        existing = repo.query_by_alias(alias)
+        if existing and existing["deckId"] != item["deckId"]:
+            return _resp(409, {"error": "alias taken"})
+        repo.put(dm.set_alias(item, alias, now_iso()))
+        return _resp(200, {"ok": True})
+
     if method == "GET" and path == "/api/decks":
         status = qs.get("status") or "active"
-        return _resp(200, {"decks": repo.list_by_status(status)})
+        group = qs.get("group")
+        decks = [d for d in repo.list_by_status(status) if dm.deck_type(d) == "deck"]
+        if group is not None:
+            key = None if group == "__unassigned__" else group
+            decks = [d for d in decks if d.get("group") == key]
+        return _resp(200, {"decks": decks})
 
     if method == "GET" and _pid(event) and path.endswith("/" + _pid(event)):
         item = repo.get(_pid(event))
