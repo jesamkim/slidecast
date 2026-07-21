@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { makeAuth, type CognitoConfig } from "./auth";
+import { makeAuth, resolvePendingAlias, PENDING_ALIAS_KEY, type CognitoConfig } from "./auth";
 import { createApi } from "./api";
 import { Gallery } from "./components/Gallery";
 import { Player } from "./components/Player";
@@ -15,10 +15,13 @@ const cfg: CognitoConfig = {
 const apiBase = import.meta.env.VITE_API_BASE ?? "";
 const auth = makeAuth(cfg);
 
-// Detect a /s/{alias} deep link once at load; the alias is preserved through
-// the auth roundtrip because Cognito returns to the original path.
-const aliasMatch = window.location.pathname.match(/^\/s\/([^/]+)$/);
-const initialAlias = aliasMatch ? aliasMatch[1] : null;
+// Detect a /s/{alias} deep link once at load. Cognito's redirect_uri is fixed
+// to the app origin, so the /s/{alias} path is lost across the login redirect.
+// We work around that by stashing the alias in sessionStorage before kicking
+// off login (see the auth gate below) and consuming it here on the way back.
+// Same-tab assumption: sessionStorage survives the Cognito redirect within the
+// same browser tab, which matches the per-tab token store in auth.ts.
+const initialAlias = resolvePendingAlias(window.location.pathname, window.sessionStorage);
 
 export function App() {
   const [ready, setReady] = useState(false);
@@ -81,7 +84,19 @@ export function App() {
           <p style={{ color: "var(--text-dim)", marginTop: 16, fontSize: 18, letterSpacing: "-0.005em" }}>
             HTML 슬라이드 시네마
           </p>
-          <button className="btn-primary" style={{ marginTop: 36 }} onClick={() => auth.login()}>
+          <button
+            className="btn-primary"
+            style={{ marginTop: 36 }}
+            onClick={() => {
+              // Stash the deep-link alias so the app can resume /s/{alias}
+              // after Cognito bounces the user back to "/". Same-tab only,
+              // matching the sessionStorage token store in auth.ts.
+              if (initialAlias) {
+                window.sessionStorage.setItem(PENDING_ALIAS_KEY, initialAlias);
+              }
+              auth.login();
+            }}
+          >
             로그인
           </button>
         </div>

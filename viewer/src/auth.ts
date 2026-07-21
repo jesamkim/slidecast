@@ -15,6 +15,41 @@ export interface CognitoConfig {
   domain: string;
 }
 
+/**
+ * Key under which we stash the alias of a /s/{alias} deep link before kicking
+ * off the Cognito login redirect. Cognito's redirect_uri is fixed to the app
+ * origin ("/"), so the path segment is lost across the roundtrip. We stash
+ * the alias in sessionStorage (which survives the same-tab OAuth redirect) so
+ * the app can resume the deep link once auth completes.
+ */
+export const PENDING_ALIAS_KEY = "slidecast:pendingAlias";
+
+const ALIAS_PATH_RE = /^\/s\/([^/]+)$/;
+
+/**
+ * Given the current URL pathname and a Storage backend, return the alias the
+ * app should resolve and play, or null for the gallery.
+ *
+ * - If pathname is /s/{alias}, that alias wins (fresh deep-link visit).
+ * - Otherwise, if a pending alias was stashed pre-login, consume it (read +
+ *   remove) and return it. This is the post-login roundtrip case, where
+ *   Cognito has bounced the user back to "/".
+ * - Otherwise, return null.
+ *
+ * Pure w.r.t. inputs (aside from consuming storage), so it's directly
+ * unit-testable without mounting the app.
+ */
+export function resolvePendingAlias(pathname: string, storage: Storage): string | null {
+  const m = pathname.match(ALIAS_PATH_RE);
+  if (m) return m[1];
+  const stashed = storage.getItem(PENDING_ALIAS_KEY);
+  if (stashed) {
+    storage.removeItem(PENDING_ALIAS_KEY);
+    return stashed;
+  }
+  return null;
+}
+
 export function cognitoHostedUiUrl(c: CognitoConfig): string {
   if (c.domain.includes(".")) return `https://${c.domain}`;
   return `https://${c.domain}.auth.${c.region}.amazoncognito.com`;
