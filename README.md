@@ -44,9 +44,10 @@ Cognito User Pool (셀프가입 차단, 관리자 사용자 1개) + Hosted UI
 ## 데이터 모델 (DynamoDB `SlideDecks`)
 
 - 덱 아이템: PK `deckId` (파일명 슬러그), `type="deck"`
-  - 속성: `title, tags[], group(null=미분류), alias(null), status(active|archived), currentVersion, versions[], createdAt, updatedAt`
-  - `versions[]` 항목: `{n, createdAt, thumbnailKey, sizeBytes, slideCount}`
+  - 속성: `title, tags[], group(null=미분류), alias(null), publicToken(null), status(active|archived), currentVersion, versions[], createdAt, updatedAt`
+  - `versions[]` 항목: `{n, createdAt, thumbnailKey, sizeBytes, slideCount, pdfKey}`
 - 그룹 메타 아이템: PK `GROUP#{groupId}`, `type="group"`, `{groupId, name, createdAt}` (같은 테이블 공존)
+- alias 예약 아이템: PK `ALIAS#{alias}` (원자적 유일성). public 예약 아이템: PK `PUBLIC#{token}`, `{ownerDeckId, publicVersion}` — 조건부 쓰기로 원자 예약, GSI 미참여.
 - GSI `byUpdatedAt` (PK `status`, SK `updatedAt`) — 갤러리 최신순
 - GSI `byAlias` (PK `alias`, sparse) — alias 유일성/리졸브. alias 없는 아이템은 미포함.
 - 참고: `put` 시 값이 null인 키는 제거해 저장한다(sparse GSI 요건). 읽을 때는 항상 `.get()`/`?? null`.
@@ -61,13 +62,28 @@ Cognito User Pool (셀프가입 차단, 관리자 사용자 1개) + Hosted UI
 - **검색**: 제목·태그·alias를 매칭하며 그룹 필터와 결합된다.
 - **날짜**: 카드·버전 목록은 `YYYY-MM-DD`로 표기(슬라이드 HTML 원본은 미변경).
 
+## Public 공유 · 다운로드
+
+- **공유**: 덱 카드의 "공유" 버튼 → 모달에서 공개 토글. ON 시 추측 불가 토큰이 발급되고
+  `https://<도메인>/p/{token}`을 **로그인 없이** 열면 그 덱의 공개 스냅샷이 풀스크린 재생된다.
+  공유 시점 현재 버전 HTML을 `public/{token}/index.html`로 복사(no-cache). OFF 시 복사본·토큰·예약
+  삭제로 링크 즉시 무효화, 재공개 시 새 토큰. 수정본은 "재발행"으로만 반영.
+- **다운로드**: 로그인 사용자가 카드/버전 메뉴에서 원본 `.html` 또는 PDF 다운로드. PDF는 업로드 시
+  썸네일 Lambda가 사전 생성(`pdfs/{deckId}/v{n}.pdf`). 프라이빗 S3 → presigned URL(attachment, 300s)로만
+  제공. PDF 미준비면 옵션 비활성. 공개 페이지에는 다운로드 없음(보기 전용).
+
 ## API (요약)
 
 - 덱: `GET /api/decks?status=&group=`, `GET|PUT|DELETE /api/decks/{id}`,
   `PUT /api/decks/{id}/current|group|alias`, `POST /api/decks/{id}/restore`
 - 그룹: `GET|POST /api/groups`, `DELETE /api/groups/{groupId}`
 - alias 리졸브: `GET /api/resolve/{alias}`
-- 모두 Cognito JWT authorizer 뒤. `/s/{alias}`는 CloudFront SPA 폴백(403/404→index.html)으로 서빙.
+- 공유: `PUT|DELETE /api/decks/{id}/share`, `POST /api/decks/{id}/share/republish`
+- 다운로드: `GET /api/decks/{id}/download?format=html|pdf&version={n}` (presigned)
+- 공개(**무인증** — 유일한 무인증 라우트): `GET /api/public/{token}` → `{title, htmlUrl}`만 반환
+- 그 외 모든 `/api`는 Cognito JWT authorizer 뒤.
+- 클라이언트 라우팅(`/s/{alias}`, `/p/{token}`)은 CloudFront Function(viewer-request)이
+  확장자 없는 비-`/api` 경로를 `/index.html`로 재작성해 SPA가 처리한다(API 404를 마스킹하지 않음).
 
 ## 배포 순서
 
@@ -109,6 +125,10 @@ python3 skill/slidecast-append/slidecast_append.py --delete <deckId> --hard
 # 그룹 관리
 python3 skill/slidecast-append/slidecast_append.py --new-group "Marketing"
 python3 skill/slidecast-append/slidecast_append.py --del-group marketing
+
+# public 공유 (발급된 /p/{token} 링크 출력) / 공유 해제
+python3 skill/slidecast-append/slidecast_append.py --share <deckId>
+python3 skill/slidecast-append/slidecast_append.py --unshare <deckId>
 ```
 
 ## 테스트
