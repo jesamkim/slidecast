@@ -1,11 +1,10 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 
 type Props = { iframeRef: React.RefObject<HTMLIFrameElement> };
 
 export function NavOverlay({ iframeRef }: Props) {
   const [state, setState] = useState<{ cur: number; total: number } | null>(null);
-  const [visible, setVisible] = useState(true);
-  const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [hovered, setHovered] = useState(false);
 
   // Receive slidecast-state from the iframe (validated by source).
   useEffect(() => {
@@ -34,25 +33,6 @@ export function NavOverlay({ iframeRef }: Props) {
     return () => clearInterval(id);
   }, [iframeRef]);
 
-  // Auto-hide: show on pointer/touch activity, hide after 2.5s idle.
-  useEffect(() => {
-    const wake = () => {
-      setVisible(true);
-      if (hideTimer.current) clearTimeout(hideTimer.current);
-      hideTimer.current = setTimeout(() => setVisible(false), 2500);
-    };
-    wake();
-    window.addEventListener("mousemove", wake);
-    window.addEventListener("touchstart", wake);
-    window.addEventListener("keydown", wake);
-    return () => {
-      window.removeEventListener("mousemove", wake);
-      window.removeEventListener("touchstart", wake);
-      window.removeEventListener("keydown", wake);
-      if (hideTimer.current) clearTimeout(hideTimer.current);
-    };
-  }, []);
-
   if (!state) return null; // unsupported deck → no overlay
 
   const send = (action: "next" | "prev") =>
@@ -65,6 +45,8 @@ export function NavOverlay({ iframeRef }: Props) {
 
   return (
     <div
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
       style={{
         position: "absolute", left: "50%", bottom: 24,
         transform: "translateX(-50%)", zIndex: 105,
@@ -73,9 +55,10 @@ export function NavOverlay({ iframeRef }: Props) {
         background: "rgba(10,10,18,0.62)",
         border: "1px solid rgba(255,255,255,0.14)",
         backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)",
-        opacity: visible ? 1 : 0,
+        // Always visible but dimmed so it never fully hides yet stays out
+        // of the way of bottom-of-slide content; brightens on hover.
+        opacity: hovered ? 1 : 0.35,
         transition: "opacity 200ms ease",
-        pointerEvents: visible ? "auto" : "none",
       }}
     >
       <button aria-label="이전 슬라이드" onClick={() => send("prev")}
