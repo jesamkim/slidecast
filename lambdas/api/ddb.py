@@ -78,3 +78,24 @@ class DeckRepo:
     def release_alias(self, alias: str) -> None:
         """Idempotent release of an alias reservation."""
         self._table.delete_item(Key={"deckId": dm.alias_pk(alias)})
+
+    def reserve_public(self, token: str, deck_id: str, public_version: int, now_iso: str) -> bool:
+        """Atomic uniqueness gate: conditional PutItem of the PUBLIC#{token}
+        reservation. Returns True if this call won the reservation, False if
+        the token is already reserved.
+        """
+        item = dm.new_public_reservation(token, deck_id, public_version, now_iso)
+        try:
+            self._table.put_item(
+                Item=item,
+                ConditionExpression="attribute_not_exists(deckId)",
+            )
+            return True
+        except ClientError as e:
+            if e.response.get("Error", {}).get("Code") == "ConditionalCheckFailedException":
+                return False
+            raise
+
+    def release_public(self, token: str) -> None:
+        """Idempotent release of a public token reservation."""
+        self.delete(dm.public_pk(token))
