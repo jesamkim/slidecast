@@ -145,7 +145,17 @@ export function Gallery({ api, onLogout }: GalleryProps) {
       >
         <div
           className="grad-text"
-          style={{ fontSize: 34, fontWeight: 800, letterSpacing: "-0.03em" }}
+          onClick={() => {
+            window.history.replaceState({}, "", "/");
+            window.location.reload();
+          }}
+          title="홈으로"
+          style={{
+            fontSize: 34,
+            fontWeight: 800,
+            letterSpacing: "-0.03em",
+            cursor: "pointer",
+          }}
         >
           Slidecast
         </div>
@@ -260,6 +270,7 @@ export function Gallery({ api, onLogout }: GalleryProps) {
                       if (!confirm(`${d.title}을(를) 영구 삭제할까요?`)) return;
                       await api.hardDelete(d.deckId);
                     } else {
+                      if (!confirm(`${d.title}을(를) 보관함으로 옮길까요?`)) return;
                       await api.softDelete(d.deckId);
                     }
                     void reload();

@@ -7,6 +7,8 @@ const makeApi = (decks: any[], overrides: Record<string, any> = {}) =>
     listDecks: vi.fn().mockResolvedValue(decks),
     listGroups: vi.fn().mockResolvedValue([]),
     restore: vi.fn().mockResolvedValue({}),
+    softDelete: vi.fn().mockResolvedValue({}),
+    hardDelete: vi.fn().mockResolvedValue({}),
     share: vi.fn().mockResolvedValue({ token: "TOK", url: "/p/TOK" }),
     unshare: vi.fn().mockResolvedValue({}),
     republish: vi.fn().mockResolvedValue({ token: "TOK2", url: "/p/TOK2" }),
@@ -242,6 +244,48 @@ describe("Gallery", () => {
     await waitFor(() =>
       expect(api.createUpload).toHaveBeenCalledWith("brief.html", "brief", [], undefined),
     );
+  });
+
+  it("deleting an active deck asks for confirmation before archiving", async () => {
+    const api = makeApi([alpha]);
+    render(<Gallery api={api} onLogout={() => {}} />);
+    await waitFor(() => expect(screen.getByText("Alpha")).toBeTruthy());
+
+    // Declined confirm: softDelete must NOT run.
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+    fireEvent.click(screen.getByRole("button", { name: "삭제" }));
+    await Promise.resolve();
+    expect(confirmSpy).toHaveBeenCalled();
+    expect(api.softDelete).not.toHaveBeenCalled();
+
+    // Accepted confirm: softDelete runs.
+    confirmSpy.mockReturnValue(true);
+    fireEvent.click(screen.getByRole("button", { name: "삭제" }));
+    await waitFor(() => expect(api.softDelete).toHaveBeenCalledWith("a"));
+    confirmSpy.mockRestore();
+  });
+
+  it("clicking the Slidecast header returns home (reloads at /)", async () => {
+    const api = makeApi([alpha]);
+    const replaceSpy = vi
+      .spyOn(window.history, "replaceState")
+      .mockImplementation(() => {});
+    const reloadSpy = vi.fn();
+    const orig = window.location;
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      value: { ...orig, reload: reloadSpy },
+    });
+
+    render(<Gallery api={api} onLogout={() => {}} />);
+    await waitFor(() => expect(screen.getByText("Alpha")).toBeTruthy());
+
+    fireEvent.click(screen.getByText("Slidecast"));
+    expect(replaceSpy).toHaveBeenCalledWith({}, "", "/");
+    expect(reloadSpy).toHaveBeenCalled();
+
+    Object.defineProperty(window, "location", { configurable: true, value: orig });
+    replaceSpy.mockRestore();
   });
 
   it("renders group sidebar and matches alias in search", async () => {
