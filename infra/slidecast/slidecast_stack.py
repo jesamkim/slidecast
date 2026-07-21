@@ -201,6 +201,28 @@ class SlidecastStack(Stack):
                     origin_request_policy=cf.OriginRequestPolicy.ALL_VIEWER_EXCEPT_HOST_HEADER,
                 ),
             },
+            # SPA fallback: deep links like /s/{alias} don't correspond to
+            # an S3 object, so the default (S3) origin returns 403/404. Map
+            # those to /index.html+200 so the React router can handle the
+            # route. NOTE: /api/* is a separate behavior with its own origin,
+            # so real API 4xx propagate unchanged. A genuinely missing
+            # /slides/{deck}/v/{n}.html will now also render index.html+200
+            # instead of a 404, which is acceptable for this personal tool
+            # (the viewer only requests versions listed in the deck item).
+            error_responses=[
+                cf.ErrorResponse(
+                    http_status=403,
+                    response_http_status=200,
+                    response_page_path="/index.html",
+                    ttl=Duration.seconds(0),
+                ),
+                cf.ErrorResponse(
+                    http_status=404,
+                    response_http_status=200,
+                    response_page_path="/index.html",
+                    ttl=Duration.seconds(0),
+                ),
+            ],
         )
 
         CfnOutput(self, "DistributionDomain", value=distribution.distribution_domain_name)

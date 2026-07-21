@@ -29,3 +29,22 @@ def test_alias_route_exists():
     assert any("/api/resolve/{alias}" in k for k in keys)
     assert any("/api/groups" in k for k in keys)
     assert any("/group" in k for k in keys)
+
+
+def test_spa_fallback_error_responses():
+    _t().has_resource_properties("AWS::CloudFront::Distribution", {
+        "DistributionConfig": Match.object_like({
+            "CustomErrorResponses": Match.array_with([
+                Match.object_like({
+                    "ErrorCode": 403,
+                    "ResponseCode": 200,
+                    "ResponsePagePath": "/index.html",
+                }),
+                Match.object_like({
+                    "ErrorCode": 404,
+                    "ResponseCode": 200,
+                    "ResponsePagePath": "/index.html",
+                }),
+            ]),
+        }),
+    })
