@@ -1,7 +1,8 @@
 import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "shared"))
 from deck_model import (
-    slide_key, thumb_key, new_deck_item, add_version, set_current, set_status,
+    slide_key, thumb_key, new_deck_item, add_version, upsert_version,
+    set_current, set_status,
 )
 
 def test_keys():
@@ -29,6 +30,26 @@ def test_add_version_is_immutable_and_increments():
     v2 = add_version(v1, "thumbnails/roadmap/v2.png", 5678, "2026-07-21T02:00:00Z")
     assert v2["currentVersion"] == 2
     assert [v["n"] for v in v2["versions"]] == [1, 2]
+
+def test_upsert_version_explicit_n_insert_update_and_immutable():
+    item = new_deck_item("roadmap", "Roadmap", [], "t0")
+    # (a) insert n=3 on a fresh deck
+    v = upsert_version(item, 3, "thumbnails/roadmap/v3.png", 100, "t1")
+    assert v["currentVersion"] == 3
+    assert len(v["versions"]) == 1
+    assert v["versions"][0]["n"] == 3
+    assert v["versions"][0]["thumbnailKey"] == "thumbnails/roadmap/v3.png"
+    # (b) re-upsert same n updates thumbnailKey, no duplicate, preserves createdAt
+    v2 = upsert_version(v, 3, "thumbnails/roadmap/v3-new.png", 200, "t2")
+    assert len(v2["versions"]) == 1
+    assert v2["versions"][0]["thumbnailKey"] == "thumbnails/roadmap/v3-new.png"
+    assert v2["versions"][0]["createdAt"] == "t1"  # original createdAt preserved
+    assert v2["updatedAt"] == "t2"
+    assert v2["currentVersion"] == 3
+    # (c) original input dict unchanged (immutability)
+    assert item["currentVersion"] == 0
+    assert item["versions"] == []
+
 
 def test_set_current_valid_and_invalid():
     item = add_version(new_deck_item("r", "R", [], "t0"), "k1", 1, "t1")

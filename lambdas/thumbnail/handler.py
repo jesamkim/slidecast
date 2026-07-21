@@ -63,11 +63,5 @@ def handler(event, context=None):
         item = repo.get(deck_id)
         if item is None:
             item = dm.new_deck_item(deck_id, deck_id, [], now_iso())
-        existing = next((v for v in item["versions"] if v["n"] == n), None)
-        if existing is None:
-            item = dm.add_version(item, tkey, len(html), now_iso())
-        else:
-            existing["thumbnailKey"] = tkey
-            item["updatedAt"] = now_iso()
-            item["currentVersion"] = max(item["currentVersion"], n)
+        item = dm.upsert_version(item, n, tkey, len(html), now_iso())
         repo.put(item)

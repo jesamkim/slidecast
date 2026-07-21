@@ -49,6 +49,40 @@ def add_version(
     return new_item
 
 
+def upsert_version(
+    item: dict,
+    n: int,
+    thumbnail_key: str,
+    size_bytes: int,
+    now_iso: str,
+    slide_count: Optional[int] = None,
+) -> dict:
+    """Insert or update version n explicitly (idempotent), returning a NEW dict.
+
+    Uses the caller-supplied n as the source of truth rather than
+    auto-incrementing, so replayed or out-of-order events land on the
+    correct version.
+    """
+    new_item = deepcopy(item)
+    record = {
+        "n": n,
+        "createdAt": now_iso,
+        "thumbnailKey": thumbnail_key,
+        "sizeBytes": size_bytes,
+        "slideCount": slide_count,
+    }
+    existing = next((v for v in new_item["versions"] if v["n"] == n), None)
+    if existing is None:
+        new_item["versions"].append(record)
+    else:
+        record["createdAt"] = existing.get("createdAt", now_iso)
+        idx = new_item["versions"].index(existing)
+        new_item["versions"][idx] = record
+    new_item["currentVersion"] = max(new_item["currentVersion"], n)
+    new_item["updatedAt"] = now_iso
+    return new_item
+
+
 def set_current(item: dict, n: int, now_iso: str) -> dict:
     if not any(v["n"] == n for v in item["versions"]):
         raise ValueError(f"version {n} does not exist")
