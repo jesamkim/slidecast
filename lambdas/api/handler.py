@@ -71,10 +71,27 @@ def _pid(event):
 
 def _delete_prefix(prefix: str) -> None:
     s3 = _s3()
-    listed = s3.list_objects_v2(Bucket=_bucket(), Prefix=prefix)
-    keys = [{"Key": o["Key"]} for o in listed.get("Contents", [])]
-    if keys:
-        s3.delete_objects(Bucket=_bucket(), Delete={"Objects": keys})
+    bucket = _bucket()
+    token = None
+    while True:
+        kwargs = {"Bucket": bucket, "Prefix": prefix}
+        if token:
+            kwargs["ContinuationToken"] = token
+        resp = s3.list_objects_v2(**kwargs)
+        keys = [{"Key": o["Key"]} for o in resp.get("Contents", [])]
+        if keys:
+            s3.delete_objects(Bucket=bucket, Delete={"Objects": keys})
+        if resp.get("IsTruncated"):
+            token = resp.get("NextContinuationToken")
+        else:
+            break
+
+
+_PUBLIC_COPY_KW = dict(
+    MetadataDirective="REPLACE",
+    ContentType="text/html",
+    CacheControl="no-cache, no-store, must-revalidate",
+)
 
 
 def handler(event, context=None):
@@ -183,7 +200,8 @@ def handler(event, context=None):
         _s3().copy_object(
             Bucket=_bucket(),
             CopySource={"Bucket": _bucket(), "Key": dm.slide_key(item["deckId"], n)},
-            Key=f"public/{token}/index.html", ContentType="text/html",
+            Key=f"public/{token}/index.html",
+            **_PUBLIC_COPY_KW,
         )
         # Unconditional overwrite: the reservation already exists, so a
         # conditional reserve_public would no-op and leave publicVersion stale.
@@ -204,7 +222,8 @@ def handler(event, context=None):
         _s3().copy_object(
             Bucket=_bucket(),
             CopySource={"Bucket": _bucket(), "Key": dm.slide_key(item["deckId"], n)},
-            Key=f"public/{token}/index.html", ContentType="text/html",
+            Key=f"public/{token}/index.html",
+            **_PUBLIC_COPY_KW,
         )
         repo.put(dm.set_public_token(item, token, now_iso()))
         return _resp(200, {"token": token, "url": f"/p/{token}"})
@@ -228,14 +247,17 @@ def handler(event, context=None):
         fmt = qs.get("format", "html")
         n = int(qs.get("version") or item["currentVersion"])
         safe_title = re.sub(r"[^A-Za-z0-9._-]+", "_", item.get("title") or item["deckId"])
+        deck_id = item["deckId"]
         if fmt == "pdf":
             ver = next((v for v in item["versions"] if v["n"] == n), None)
             key = ver.get("pdfKey") if ver else None
-            if not key:
+            if not key or not key.startswith(f"pdfs/{deck_id}/"):
                 return _resp(409, {"error": "pdf not ready"})
             ext = "pdf"
         else:
-            key = dm.slide_key(item["deckId"], n)
+            key = dm.slide_key(deck_id, n)
+            if not key.startswith(f"slides/{deck_id}/"):
+                return _resp(409, {"error": "html not ready"})
             ext = "html"
         url = _s3().generate_presigned_url(
             "get_object",
@@ -295,7 +317,9 @@ def handler(event, context=None):
         repo.put(dm.set_status(item, "active", now_iso()))
         return _resp(200, {"ok": True})
 
-    if method == "PUT" and _pid(event):
+    if method == "PUT" and _pid(event) and not any(
+        path.endswith(s) for s in ("/download", "/share", "/current", "/group", "/alias")
+    ):
         item = repo.get(_pid(event))
         if not item:
             return _resp(404, {"error": "not found"})
@@ -305,7 +329,7 @@ def handler(event, context=None):
         repo.put(item)
         return _resp(200, {"deckId": item["deckId"], "version": n, "uploadUrl": _upload_url(item["deckId"], n)})
 
-    if method == "DELETE" and _pid(event):
+    if method == "DELETE" and _pid(event) and not path.endswith(("/download", "/share")):
         deck_id = _pid(event)
         item = repo.get(deck_id)
         if not item:
