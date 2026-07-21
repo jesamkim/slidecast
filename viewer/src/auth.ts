@@ -46,7 +46,20 @@ export function makeAuth(c: CognitoConfig) {
       }
     },
     login: () => mgr.signinRedirect(),
-    logout: () => mgr.signoutRedirect(),
+    logout: async () => {
+      // Cognito's OIDC discovery doesn't publish end_session_endpoint, so
+      // mgr.signoutRedirect() fails. Clear the local user, then redirect to
+      // the Hosted UI /logout which clears the Cognito session and bounces
+      // back to the origin.
+      try {
+        await mgr.removeUser();
+      } catch {
+        // ignore — we're leaving the page anyway
+      }
+      const base = cognitoHostedUiUrl(c);
+      const url = `${base}/logout?client_id=${encodeURIComponent(c.clientId)}&logout_uri=${encodeURIComponent(window.location.origin + "/")}`;
+      window.location.assign(url);
+    },
     getToken: () => user?.id_token ?? "",
     isAuthenticated: () => !!user && !user.expired,
   };

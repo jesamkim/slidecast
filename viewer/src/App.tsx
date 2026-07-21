@@ -19,10 +19,19 @@ export function App() {
 
   useEffect(() => {
     (async () => {
-      await auth.init();
-      await auth.handleCallback();
-      setAuthed(auth.isAuthenticated());
-      setReady(true);
+      try {
+        await auth.init();
+        await auth.handleCallback();
+        setAuthed(auth.isAuthenticated());
+      } catch (err) {
+        // Auth callback / init failed (bad state, network, etc). Reset the URL
+        // and drop back to the login screen instead of hanging on "로딩 중...".
+        console.error("auth bootstrap failed:", err);
+        window.history.replaceState({}, "", "/");
+        setAuthed(false);
+      } finally {
+        setReady(true);
+      }
     })();
   }, []);
 
