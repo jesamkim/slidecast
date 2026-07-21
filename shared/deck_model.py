@@ -15,6 +15,10 @@ def thumb_key(deck_id: str, n: int) -> str:
     return f"thumbnails/{deck_id}/v{n}.png"
 
 
+def pdf_key(deck_id: str, n: int) -> str:
+    return f"pdfs/{deck_id}/v{n}.pdf"
+
+
 def next_version(item: dict) -> int:
     """Monotonic next version number: max existing n + 1 (or 1 if none).
 

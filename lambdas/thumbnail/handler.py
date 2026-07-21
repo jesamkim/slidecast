@@ -50,6 +50,38 @@ def capture_png(html_bytes: bytes) -> bytes:
     return png
 
 
+def capture_pdf(html_bytes: bytes) -> bytes:
+    """Render the deck's first frame to a landscape PDF using headless Chromium.
+
+    Isolated from capture_png so tests can monkeypatch it independently.
+    Keeps the playwright import inside the function so the module remains
+    importable without playwright.
+    """
+    import tempfile
+    from playwright.sync_api import sync_playwright
+
+    with tempfile.NamedTemporaryFile(suffix=".html", delete=False) as f:
+        f.write(html_bytes)
+        html_path = f.name
+    launch_kwargs = {"args": ["--no-sandbox", "--disable-gpu", "--single-process"]}
+    exe = os.environ.get("CHROMIUM_PATH")
+    if exe:
+        launch_kwargs["executable_path"] = exe
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True, **launch_kwargs)
+        page = browser.new_page()
+        page.goto(f"file://{html_path}")
+        page.wait_for_timeout(1200)
+        data = page.pdf(
+            landscape=True,
+            print_background=True,
+            width="1280px",
+            height="720px",
+        )
+        browser.close()
+    return data
+
+
 def handler(event, context=None):
     s3 = boto3.client("s3")
     repo = DeckRepo(os.environ["TABLE_NAME"])
@@ -77,3 +109,13 @@ def handler(event, context=None):
         except KeyError:
             item = dm.upsert_version(item, n, tkey, len(html), now)
         repo.put(item)
+
+        pdf = capture_pdf(html)
+        pkey = dm.pdf_key(deck_id, n)
+        s3.put_object(
+            Bucket=bucket, Key=pkey, Body=pdf, ContentType="application/pdf",
+            CacheControl="public, max-age=31536000, immutable",
+        )
+        latest = repo.get(deck_id) or item
+        latest = dm.set_version_pdf(latest, n, pkey, now_iso())
+        repo.put(latest)
