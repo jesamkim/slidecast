@@ -33,6 +33,12 @@ SHIM = r"""/* slidecast-nav bridge */
     else if(d.action==="ping") bc();
   });
   addEventListener("hashchange", bc);
+  try {
+    new MutationObserver(bc).observe(
+      document.getElementById('stage') || document.body,
+      { subtree: true, attributes: true, attributeFilter: ['class'] }
+    );
+  } catch (e) {}
 })();
 """
 
