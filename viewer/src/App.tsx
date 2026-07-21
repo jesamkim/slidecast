@@ -24,9 +24,15 @@ export function App() {
         await auth.handleCallback();
         setAuthed(auth.isAuthenticated());
       } catch (err) {
-        // Auth callback / init failed (bad state, network, etc). Reset the URL
-        // and drop back to the login screen instead of hanging on "로딩 중...".
+        // Auth callback / init failed (bad state, network, etc). Clear stale
+        // oidc state and the URL, then drop back to the login screen instead of
+        // hanging on "로딩 중..." (and avoid failing on every reload).
         console.error("auth bootstrap failed:", err);
+        try {
+          await auth.reset();
+        } catch (resetErr) {
+          console.error("auth reset failed:", resetErr);
+        }
         window.history.replaceState({}, "", "/");
         setAuthed(false);
       } finally {

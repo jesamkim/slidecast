@@ -60,6 +60,13 @@ export function makeAuth(c: CognitoConfig) {
       const url = `${base}/logout?client_id=${encodeURIComponent(c.clientId)}&logout_uri=${encodeURIComponent(window.location.origin + "/")}`;
       window.location.assign(url);
     },
+    async reset() {
+      // Drop any corrupted / stale oidc state so a broken bootstrap doesn't
+      // fail on every subsequent reload.
+      await mgr.clearStaleState();
+      await mgr.removeUser();
+      user = null;
+    },
     getToken: () => user?.id_token ?? "",
     isAuthenticated: () => !!user && !user.expired,
   };

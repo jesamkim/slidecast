@@ -48,8 +48,11 @@ export function Gallery({ api, onLogout }: GalleryProps) {
   const play = (d: Deck) =>
     setPlaying(`/slides/${d.deckId}/v${d.currentVersion}/index.html`);
 
-  const shown = decks.filter((d) =>
-    d.title.toLowerCase().includes(query.toLowerCase()),
+  const q = query.toLowerCase();
+  const shown = decks.filter(
+    (d) =>
+      d.title.toLowerCase().includes(q) ||
+      (d.tags ?? []).some((t) => t.toLowerCase().includes(q)),
   );
 
   const archived = status === "archived";
