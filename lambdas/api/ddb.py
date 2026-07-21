@@ -96,6 +96,19 @@ class DeckRepo:
                 return False
             raise
 
+    def set_public_version(self, token: str, public_version: int) -> None:
+        """Update ONLY publicVersion on an existing PUBLIC#{token} item.
+        Preserves viewCount/viewsByDay so republish (same token, new content
+        version) does not reset accumulated view counters. Re-share is a
+        separate flow: unshare deletes the reservation, then share creates a
+        fresh one with counters starting at 0.
+        """
+        self._table.update_item(
+            Key={"deckId": dm.public_pk(token)},
+            UpdateExpression="SET publicVersion = :v",
+            ExpressionAttributeValues={":v": public_version},
+        )
+
     def release_public(self, token: str) -> None:
         """Idempotent release of a public token reservation."""
         self.delete(dm.public_pk(token))

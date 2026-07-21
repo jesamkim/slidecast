@@ -207,9 +207,12 @@ def handler(event, context=None):
             Key=f"public/{token}/index.html",
             **_PUBLIC_COPY_KW,
         )
-        # Unconditional overwrite: the reservation already exists, so a
-        # conditional reserve_public would no-op and leave publicVersion stale.
-        repo.put(dm.new_public_reservation(token, item["deckId"], n, now_iso()))
+        # Update ONLY publicVersion on the existing reservation. A full
+        # overwrite (put of new_public_reservation) would drop viewCount and
+        # viewsByDay, resetting accumulated view counts to 0 on every
+        # republish. Per spec, only re-share (unshare + share = new token)
+        # resets counters.
+        repo.set_public_version(token, n)
         return _resp(200, {"ok": True})
 
     if method == "PUT" and path.endswith("/share"):

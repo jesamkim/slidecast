@@ -162,12 +162,23 @@ class SlidecastStack(Stack):
             "/api/decks/{id}/share",
             "/api/decks/{id}/share/republish",
             "/api/decks/{id}/download",
+        ):
+            http_api.add_routes(
+                path=route_path,
+                methods=[apigw.HttpMethod.ANY],
+                integration=api_integration,
+            )
+
+        # Views routes are GET-only. Restrict methods so DELETE/PUT do not
+        # fall through to the generic deck handlers (which would archive the
+        # deck or mint a pending version).
+        for route_path in (
             "/api/decks/{id}/views",
             "/api/decks/{id}/views/export",
         ):
             http_api.add_routes(
                 path=route_path,
-                methods=[apigw.HttpMethod.ANY],
+                methods=[apigw.HttpMethod.GET],
                 integration=api_integration,
             )
 

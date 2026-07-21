@@ -183,3 +183,40 @@ def test_resolve_still_200_when_increment_raises(monkeypatch):
     body = json.loads(r["body"])
     assert body["title"] == "Title"
     assert body["htmlUrl"] == f"/public/{tok}/index.html"
+
+
+@mock_aws
+def test_republish_preserves_view_counters(monkeypatch):
+    res = boto3.resource("dynamodb", region_name="us-east-1")
+    s3 = boto3.client("s3", region_name="us-east-1")
+    _setup(res, s3)
+    monkeypatch.setenv("TABLE_NAME", TABLE); monkeypatch.setenv("BUCKET_NAME", BUCKET)
+    import handler as h; importlib.reload(h)
+    from ddb import DeckRepo
+    import deck_model as dm
+    repo = _seed(res, s3)
+    tok = json.loads(h.handler(_evt("PUT", "/api/decks/a/share", pp={"id": "a"}))["body"])["token"]
+
+    # Accumulate 3 views.
+    for _ in range(3):
+        repo.increment_views(tok, "2026-07-21")
+    assert repo.get_views(tok)["total"] == 3
+
+    # Add a new version so republish has something to promote.
+    item = repo.get("a")
+    item = dm.add_pending_version(item, 2, "t2")
+    repo.put(item)
+    s3.put_object(Bucket=BUCKET, Key=dm.slide_key("a", 2),
+                  Body=b"<html>v2</html>", ContentType="text/html")
+
+    r = h.handler(_evt("POST", "/api/decks/a/share/republish", pp={"id": "a"}))
+    assert r["statusCode"] == 200
+
+    # Views survive republish (same token, same reservation).
+    v = h.handler(_evt("GET", "/api/decks/a/views", pp={"id": "a"}))
+    assert v["statusCode"] == 200
+    body = json.loads(v["body"])
+    assert body["total"] == 3
+    # publicVersion was bumped to the new content version.
+    reservation = repo.get(dm.public_pk(tok))
+    assert reservation["publicVersion"] == 2
