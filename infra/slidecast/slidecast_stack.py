@@ -31,6 +31,21 @@ class SlidecastStack(Stack):
             encryption=s3.BucketEncryption.S3_MANAGED,
             enforce_ssl=True,
             removal_policy=RemovalPolicy.RETAIN,
+            # Browser presigned PUT uploads originate from the SPA served
+            # off CloudFront. The CloudFront domain isn't known at synth
+            # time, and this is a personal-scale tool, so we allow the
+            # needed methods from any origin. Tighten to the specific
+            # CloudFront hostname post-deploy if desired.
+            cors=[s3.CorsRule(
+                allowed_methods=[
+                    s3.HttpMethods.PUT,
+                    s3.HttpMethods.GET,
+                    s3.HttpMethods.HEAD,
+                ],
+                allowed_origins=["*"],
+                allowed_headers=["*"],
+                max_age=3000,
+            )],
         )
 
         table = ddb.Table(
@@ -52,11 +67,19 @@ class SlidecastStack(Stack):
             sign_in_aliases=cognito.SignInAliases(email=True),
             removal_policy=RemovalPolicy.RETAIN,
         )
+        # Callback/logout URLs are placeholders at synth time. Cognito
+        # requires at least one when the authorization-code grant is
+        # enabled, but the real CloudFront domain isn't known until after
+        # deploy. scripts/deploy-viewer.sh overrides these with the real
+        # https://<DistributionDomain>/ URLs post-deploy — that script is
+        # the source of truth for the deployed values.
         user_pool_client = user_pool.add_client(
             "WebClient",
             o_auth=cognito.OAuthSettings(
                 flows=cognito.OAuthFlows(authorization_code_grant=True),
                 scopes=[cognito.OAuthScope.OPENID, cognito.OAuthScope.EMAIL],
+                callback_urls=["https://localhost:5173/"],
+                logout_urls=["https://localhost:5173/"],
             ),
             generate_secret=False,
         )
@@ -91,12 +114,14 @@ class SlidecastStack(Stack):
         table.grant_read_write_data(api_fn)
         bucket.grant_read_write(api_fn)
 
-        thumb_fn = lambda_.Function(
+        # Thumbnail Lambda ships as a container image because it needs a
+        # bundled headless Chromium (Playwright), which is too large for a
+        # zip Lambda + layer. See lambdas/thumbnail/Dockerfile. deploy.sh
+        # copies shared/deck_model.py and lambdas/api/ddb.py into the
+        # build context so the Dockerfile can COPY them.
+        thumb_fn = lambda_.DockerImageFunction(
             self, "ThumbFn",
-            runtime=lambda_.Runtime.PYTHON_3_12,
-            handler="handler.handler",
-            code=lambda_.Code.from_asset(thumb_asset_path),
-            layers=[shared_layer],
+            code=lambda_.DockerImageCode.from_image_asset(thumb_asset_path),
             memory_size=2048,
             timeout=Duration.seconds(60),
             environment={"TABLE_NAME": table.table_name, "BUCKET_NAME": bucket.bucket_name},

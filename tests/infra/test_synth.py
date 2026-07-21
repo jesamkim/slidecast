@@ -55,6 +55,19 @@ def test_dynamodb_table_name_is_fixed():
     t.has_resource_properties("AWS::DynamoDB::Table", {"TableName": "SlideDecks"})
 
 
+def test_thumbnail_is_container_image():
+    t = _template()
+    fns = t.find_resources("AWS::Lambda::Function")
+    pkg_types = [f["Properties"].get("PackageType") for f in fns.values()]
+    assert "Image" in pkg_types, pkg_types
+
+
+def test_bucket_has_cors():
+    t = _template()
+    buckets = t.find_resources("AWS::S3::Bucket")
+    assert any("CorsConfiguration" in b["Properties"] for b in buckets.values()), buckets
+
+
 def test_no_public_ingress_alb():
     t = _template()
     assert t.find_resources("AWS::ElasticLoadBalancingV2::LoadBalancer") == {}
