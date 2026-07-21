@@ -36,6 +36,7 @@ RUN dnf install -y \
         fontconfig \
         google-noto-sans-cjk-fonts \
         google-noto-sans-fonts \
+        google-noto-emoji-fonts \
     && fc-cache -f \
     && dnf clean all
 
