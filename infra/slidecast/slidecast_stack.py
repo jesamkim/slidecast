@@ -158,6 +158,9 @@ class SlidecastStack(Stack):
             "/api/decks/{id}",
             "/api/decks/{id}/current",
             "/api/decks/{id}/restore",
+            "/api/decks/{id}/share",
+            "/api/decks/{id}/share/republish",
+            "/api/decks/{id}/download",
         ):
             http_api.add_routes(
                 path=route_path,
@@ -181,6 +184,16 @@ class SlidecastStack(Stack):
                 methods=[apigw.HttpMethod.ANY],
                 integration=integrations.HttpLambdaIntegration(int_id, api_fn),
             )
+
+        # Public unauthenticated route for shared/downloaded deck access by
+        # opaque token. Overrides the HttpApi's default JWT authorizer with
+        # HttpNoneAuthorizer so anonymous viewers can resolve the token.
+        http_api.add_routes(
+            path="/api/public/{token}",
+            methods=[apigw.HttpMethod.GET],
+            integration=integrations.HttpLambdaIntegration("IntApiPublic", api_fn),
+            authorizer=apigw.HttpNoneAuthorizer(),
+        )
 
         oac = cf.S3OriginAccessControl(self, "Oac")
         s3_origin = origins.S3BucketOrigin.with_origin_access_control(bucket, origin_access_control=oac)
