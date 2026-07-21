@@ -186,6 +186,10 @@ def handler(event, context=None):
         owner = repo.get(res["ownerDeckId"])
         if not owner:
             return _resp(404, {"error": "not found"})
+        try:
+            repo.increment_views(token, now_iso()[:10])
+        except Exception:
+            pass  # aggregation must never block playback
         return _resp(200, {"title": owner.get("title", ""), "htmlUrl": f"/public/{token}/index.html"})
 
     # --- share / republish / unshare (must precede generic PUT/POST/DELETE) ---
@@ -239,6 +243,40 @@ def handler(event, context=None):
             repo.put(dm.set_public_token(item, None, now_iso()))
         return _resp(200, {"ok": True})
 
+    # --- views (must precede generic single-deck GET) ---
+    if method == "GET" and path.endswith("/views/export"):
+        item = repo.get(_pid(event))
+        if not item:
+            return _resp(404, {"error": "not found"})
+        token = item.get("publicToken")
+        stats = repo.get_views(token) if token else {"total": 0, "byDay": {}}
+        rows = sorted(stats["byDay"].items())
+        fmt = qs.get("format", "csv")
+        did = item["deckId"]
+        if fmt == "json":
+            body = json.dumps({"deckId": did, "total": stats["total"],
+                               "byDay": [{"date": d, "count": c} for d, c in rows]},
+                              default=_json_default)
+            ct = "application/json"; ext = "json"
+        else:
+            lines = ["date,count"] + [f"{d},{c}" for d, c in rows]
+            body = "\n".join(lines) + "\n"; ct = "text/csv"; ext = "csv"
+        return {"statusCode": 200,
+                "headers": {"Content-Type": ct,
+                            "Content-Disposition": f'attachment; filename="{did}-views.{ext}"'},
+                "body": body}
+
+    if method == "GET" and path.endswith("/views"):
+        item = repo.get(_pid(event))
+        if not item:
+            return _resp(404, {"error": "not found"})
+        token = item.get("publicToken")
+        if not token:
+            return _resp(200, {"total": 0, "byDay": []})
+        stats = repo.get_views(token)
+        by_day = [{"date": d, "count": c} for d, c in sorted(stats["byDay"].items())]
+        return _resp(200, {"total": stats["total"], "byDay": by_day})
+
     # --- download ---
     if method == "GET" and path.endswith("/download"):
         item = repo.get(_pid(event))
@@ -274,6 +312,10 @@ def handler(event, context=None):
         if group is not None:
             key = None if group == "__unassigned__" else group
             decks = [d for d in decks if d.get("group") == key]
+        for d in decks:
+            tok = d.get("publicToken")
+            if tok:
+                d["viewCount"] = repo.get_views(tok)["total"]
         return _resp(200, {"decks": decks})
 
     if method == "GET" and _pid(event) and path.endswith("/" + _pid(event)):
