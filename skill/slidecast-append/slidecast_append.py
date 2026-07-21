@@ -50,6 +50,24 @@ def append(html_path, table=DEFAULT_TABLE, bucket=None, dynamodb=None, s3=None,
 
     deck_id = slugify(html_path)
     n = resolve_target(repo, deck_id)
+
+    # Validate the alias BEFORE any S3 upload. Otherwise a rejected alias
+    # would leave orphan slide/thumbnail objects in the bucket (and trigger
+    # the thumbnail S3 event). Uploads are the expensive/side-effecting
+    # step, so gate them on validation success.
+    aslug = None
+    if alias is not None:
+        if not isinstance(alias, str) or not alias.strip():
+            raise SystemExit("empty alias")
+        aslug = slugify(alias)
+        if not dm.is_valid_alias(aslug):
+            raise SystemExit(f"invalid or reserved alias: {alias}")
+        existing = repo.query_by_alias(aslug)
+        if existing and existing.get("deckId") != deck_id:
+            raise SystemExit(
+                f"alias '{aslug}' already taken by deck '{existing.get('deckId')}'"
+            )
+
     html = open(html_path, "rb").read()
 
     s3.put_object(Bucket=bucket, Key=dm.slide_key(deck_id, n), Body=html,
@@ -73,15 +91,7 @@ def append(html_path, table=DEFAULT_TABLE, bucket=None, dynamodb=None, s3=None,
             repo.put(dm.new_group_item(gid, group, now_iso()))
         item = dm.set_group(item, gid, now_iso())
 
-    if alias is not None:
-        aslug = slugify(alias)
-        if not dm.is_valid_alias(aslug):
-            raise SystemExit(f"invalid or reserved alias: {alias}")
-        existing = repo.query_by_alias(aslug)
-        if existing and existing.get("deckId") != deck_id:
-            raise SystemExit(
-                f"alias '{aslug}' already taken by deck '{existing.get('deckId')}'"
-            )
+    if aslug is not None:
         item = dm.set_alias(item, aslug, now_iso())
 
     repo.put(item)

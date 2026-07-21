@@ -95,6 +95,44 @@ def test_append_reserved_alias_raises():
         sa.append(path, TABLE, BUCKET, dynamodb=res, s3=s3, capture=stub, alias="api")
 
 
+def _bucket_keys(s3, prefix: str) -> list:
+    listed = s3.list_objects_v2(Bucket=BUCKET, Prefix=prefix)
+    return [o["Key"] for o in listed.get("Contents", [])]
+
+
+@mock_aws
+def test_append_invalid_alias_leaves_no_s3_objects():
+    """Alias validation MUST gate the S3 upload so a rejected append
+    doesn't create orphan slides/thumbnails objects."""
+    res = boto3.resource("dynamodb", region_name="us-east-1")
+    s3 = boto3.client("s3", region_name="us-east-1")
+    _mk(res, s3)
+    import slidecast_append as sa
+    stub = lambda html: b"PNG"
+
+    # Reserved alias
+    path = _write("orphan.html")
+    with pytest.raises(SystemExit):
+        sa.append(path, TABLE, BUCKET, dynamodb=res, s3=s3, capture=stub, alias="api")
+    assert _bucket_keys(s3, "slides/orphan/") == []
+    assert _bucket_keys(s3, "thumbnails/orphan/") == []
+
+    # Empty alias
+    with pytest.raises(SystemExit):
+        sa.append(path, TABLE, BUCKET, dynamodb=res, s3=s3, capture=stub, alias="")
+    assert _bucket_keys(s3, "slides/orphan/") == []
+    assert _bucket_keys(s3, "thumbnails/orphan/") == []
+
+    # Conflict alias
+    p1 = _write("taken.html")
+    sa.append(p1, TABLE, BUCKET, dynamodb=res, s3=s3, capture=stub, alias="road")
+    p2 = _write("other.html")
+    with pytest.raises(SystemExit):
+        sa.append(p2, TABLE, BUCKET, dynamodb=res, s3=s3, capture=stub, alias="road")
+    assert _bucket_keys(s3, "slides/other/") == []
+    assert _bucket_keys(s3, "thumbnails/other/") == []
+
+
 @mock_aws
 def test_new_group_and_del_group_reassigns_members():
     res = boto3.resource("dynamodb", region_name="us-east-1")
