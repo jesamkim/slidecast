@@ -16,6 +16,59 @@ from slug import slugify
 
 DEFAULT_TABLE = "SlideDecks"
 
+# slidecast-nav bridge: lets the viewer's bottom navigation overlay drive
+# next/prev and read current/total via postMessage, without granting the
+# deck iframe allow-same-origin. html-slide decks built after the engine
+# update already embed a native bridge; for decks that don't (older exports
+# or other tools), inject this keyboard-event shim at upload time so every
+# uploaded deck supports the overlay. Idempotent via MARKER; only applied
+# to decks that carry the html-slide engine signature.
+NAV_MARKER = "/* slidecast-nav bridge */"
+NAV_ENGINE_SIGNATURE = "fit(); show(cur);"
+NAV_SHIM = r"""/* slidecast-nav bridge */
+(function(){
+  if (window.parent === window) return;
+  function bc(){ try { window.parent.postMessage({type:"slidecast-state",cur:(location.hash.slice(1)|0)||1,total:document.querySelectorAll('.slide').length}, "*"); } catch(e){} }
+  addEventListener("message", function(e){
+    var d=e.data; if(!d||d.type!=="slidecast-nav")return;
+    if(d.action==="next") dispatchEvent(new KeyboardEvent("keydown",{key:"ArrowRight"}));
+    else if(d.action==="prev") dispatchEvent(new KeyboardEvent("keydown",{key:"ArrowLeft"}));
+    else if(d.action==="ping") bc();
+  });
+  addEventListener("hashchange", bc);
+  try {
+    new MutationObserver(bc).observe(
+      document.getElementById('stage') || document.body,
+      { subtree: true, attributes: true, attributeFilter: ['class'] }
+    );
+  } catch (e) {}
+})();
+"""
+
+
+def ensure_nav_bridge(html: bytes) -> bytes:
+    """Return html with the slidecast-nav bridge injected if it's an
+    html-slide engine deck that lacks one. No-op (returns input) for decks
+    already carrying a bridge, non-engine decks, or non-UTF-8 bytes."""
+    try:
+        body = html.decode("utf-8", errors="strict")
+    except UnicodeDecodeError:
+        return html
+    # Skip if a bridge is already present in ANY form. Both the shim and the
+    # native bridge that newer html-slide engines embed reference the
+    # "slidecast-nav" message type, so its mere presence means a bridge is
+    # wired. Injecting a second one would double-broadcast state and
+    # double-advance on next/prev. Also skip decks that lack the html-slide
+    # engine signature (nothing to hook).
+    if "slidecast-nav" in body or NAV_ENGINE_SIGNATURE not in body:
+        return html
+    patched = body.replace(
+        NAV_ENGINE_SIGNATURE, NAV_SHIM + "      " + NAV_ENGINE_SIGNATURE, 1
+    )
+    if patched == body or NAV_MARKER not in patched or "</html>" not in patched:
+        return html
+    return patched.encode("utf-8")
+
 
 def now_iso() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -70,10 +123,14 @@ def append(html_path, table=DEFAULT_TABLE, bucket=None, dynamodb=None, s3=None,
                 raise SystemExit(f"alias '{aslug}' already taken")
 
     html = open(html_path, "rb").read()
+    html = ensure_nav_bridge(html)
 
+    # Deck HTML uses no-cache (not immutable): a re-share, retrofit, or
+    # re-upload must be picked up without waiting on a stale browser copy.
+    # The thumbnail PNG below stays immutable (its bytes never change).
     s3.put_object(Bucket=bucket, Key=dm.slide_key(deck_id, n), Body=html,
                   ContentType="text/html",
-                  CacheControl="public, max-age=31536000, immutable")
+                  CacheControl="no-cache")
     png = capture(html)
     tkey = dm.thumb_key(deck_id, n)
     s3.put_object(Bucket=bucket, Key=tkey, Body=png, ContentType="image/png",
