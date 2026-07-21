@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Retrofit already-uploaded slide decks with the Slidecast postMessage bridge.
 
-Scans s3://<BucketName>/slides/*/v*/index.html, injects a small navigation
+Scans s3://<BucketName>/slides/**/index.html and public/**/index.html,
+injects a small navigation
 bridge shim in front of the html-slide engine's `fit(); show(cur);` call so
 the deck can be driven by a parent viewer via postMessage.
 
@@ -72,13 +73,18 @@ def process(dry_run: bool) -> int:
     )
     s3 = session.client("s3")
 
+    # Patch both the canonical decks under slides/ (played by the authed
+    # /s/{alias} viewer) AND the per-share snapshots under public/{token}/
+    # (played by the public /p/{token} viewer). The public copy is a
+    # separate object made at share time, so it needs the bridge too.
     keys: list[str] = []
     paginator = s3.get_paginator("list_objects_v2")
-    for page in paginator.paginate(Bucket=bucket, Prefix="slides/"):
-        for obj in page.get("Contents", []) or []:
-            key = obj["Key"]
-            if key.endswith("/index.html"):
-                keys.append(key)
+    for prefix in ("slides/", "public/"):
+        for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
+            for obj in page.get("Contents", []) or []:
+                key = obj["Key"]
+                if key.endswith("/index.html"):
+                    keys.append(key)
 
     counts = {"patch": 0, "skip": 0, "unsupported": 0, "invalid": 0}
     for key in keys:
