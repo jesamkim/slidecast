@@ -11,6 +11,10 @@ const makeApi = (decks: any[], overrides: Record<string, any> = {}) =>
     unshare: vi.fn().mockResolvedValue({}),
     republish: vi.fn().mockResolvedValue({ token: "TOK2", url: "/p/TOK2" }),
     downloadUrl: vi.fn().mockResolvedValue({ downloadUrl: "https://cdn/f.html" }),
+    getViews: vi
+      .fn()
+      .mockResolvedValue({ total: 5, byDay: [{ date: "2026-07-21", count: 5 }] }),
+    downloadViews: vi.fn().mockResolvedValue(undefined),
     ...overrides,
   }) as any;
 
@@ -115,6 +119,41 @@ describe("Gallery", () => {
     render(<Gallery api={api} onLogout={() => {}} />);
     await waitFor(() => expect(screen.getByText("Public Deck")).toBeTruthy());
     expect(screen.getByText("공개")).toBeTruthy();
+  });
+
+  it("shows a view-count badge for public decks with viewCount", async () => {
+    const pub = {
+      ...alpha,
+      deckId: "p",
+      title: "Public Deck",
+      publicToken: "TOK",
+      viewCount: 5,
+    };
+    const api = makeApi([pub]);
+    render(<Gallery api={api} onLogout={() => {}} />);
+    await waitFor(() => expect(screen.getByText("Public Deck")).toBeTruthy());
+    expect(screen.getByTestId("view-count-badge").textContent).toContain("5");
+  });
+
+  it("opening share modal for a shared deck fetches views and renders total", async () => {
+    const pub = {
+      ...alpha,
+      deckId: "p",
+      title: "Public Deck",
+      publicToken: "TOK",
+      viewCount: 5,
+    };
+    const api = makeApi([pub]);
+    render(<Gallery api={api} onLogout={() => {}} />);
+    await waitFor(() => expect(screen.getByText("Public Deck")).toBeTruthy());
+    fireEvent.click(screen.getByRole("button", { name: "공유" }));
+    await waitFor(() => expect(api.getViews).toHaveBeenCalledWith("p"));
+    await waitFor(() =>
+      expect(screen.getByTestId("views-total").textContent).toContain("5"),
+    );
+    // Export CSV button calls downloadViews.
+    fireEvent.click(screen.getByRole("button", { name: "CSV 내보내기" }));
+    await waitFor(() => expect(api.downloadViews).toHaveBeenCalledWith("p", "csv"));
   });
 
   it("HTML download calls api.downloadUrl and opens the returned url", async () => {

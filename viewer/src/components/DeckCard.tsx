@@ -40,6 +40,8 @@ export function DeckCard({
   const group = deck.group ?? null;
   const publicToken = deck.publicToken ?? null;
   const curPdfKey = cur?.pdfKey ?? null;
+  const viewCount = deck.viewCount ?? 0;
+  const showViewBadge = publicToken != null && deck.viewCount != null;
 
   const submitAlias = async () => {
     if (!onSetAlias) return;
@@ -192,6 +194,41 @@ export function DeckCard({
             title="공개 링크가 활성화됨"
           >
             공개
+          </div>
+        )}
+        {showViewBadge && (
+          <div
+            data-testid="view-count-badge"
+            style={{
+              position: "absolute",
+              bottom: 10,
+              right: 10,
+              display: "flex",
+              alignItems: "center",
+              gap: 5,
+              padding: "3px 9px",
+              borderRadius: 999,
+              fontFamily: "var(--font-mono)",
+              fontSize: 11,
+              fontWeight: 600,
+              letterSpacing: "0.02em",
+              color: "#fff",
+              background: "rgba(10,10,18,0.6)",
+              border: "1px solid rgba(255,255,255,0.18)",
+              backdropFilter: "blur(10px)",
+              WebkitBackdropFilter: "blur(10px)",
+            }}
+            title={`조회 ${viewCount}`}
+          >
+            <svg width="11" height="11" viewBox="0 0 16 16" fill="none" aria-hidden>
+              <path
+                d="M1 8s2.5-5 7-5 7 5 7 5-2.5 5-7 5S1 8 1 8Z"
+                stroke="currentColor"
+                strokeWidth="1.4"
+              />
+              <circle cx="8" cy="8" r="2" stroke="currentColor" strokeWidth="1.4" />
+            </svg>
+            {viewCount}
           </div>
         )}
         {alias && (

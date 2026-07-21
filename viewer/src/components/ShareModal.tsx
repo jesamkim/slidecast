@@ -1,6 +1,7 @@
-import { useRef, useState } from "react";
-import type { Deck } from "../types";
+import { useEffect, useRef, useState } from "react";
+import type { Deck, ViewStats } from "../types";
 import type { createApi } from "../api";
+import { ViewsChart } from "./ViewsChart";
 
 type Api = ReturnType<typeof createApi>;
 
@@ -23,8 +24,50 @@ export function ShareModal({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [views, setViews] = useState<ViewStats | null>(null);
+  const [viewsError, setViewsError] = useState<string | null>(null);
+  const [exportBusy, setExportBusy] = useState(false);
   // Guard share/unshare/republish from double-submit (Enter, blur, rapid clicks).
   const submitting = useRef(false);
+
+  useEffect(() => {
+    if (!token) {
+      setViews(null);
+      setViewsError(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const v = await api.getViews(deck.deckId);
+        if (!cancelled) {
+          setViews(v);
+          setViewsError(null);
+        }
+      } catch {
+        if (!cancelled) {
+          setViews(null);
+          setViewsError("조회 데이터를 불러오지 못했습니다");
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [token, deck.deckId, api]);
+
+  const exportViews = async (fmt: "csv" | "json") => {
+    if (exportBusy) return;
+    setExportBusy(true);
+    try {
+      await api.downloadViews(deck.deckId, fmt);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setError(msg);
+    } finally {
+      setExportBusy(false);
+    }
+  };
 
   const runGuarded = async (fn: () => Promise<void>) => {
     if (submitting.current) return;
@@ -202,6 +245,67 @@ export function ShareModal({
                 style={{ padding: "9px 14px", fontSize: 13 }}
               >
                 닫기
+              </button>
+            </div>
+          </div>
+        )}
+
+        {token && (
+          <div style={{ marginTop: 20, display: "grid", gap: 10 }}>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "baseline",
+                justifyContent: "space-between",
+              }}
+            >
+              <label
+                style={{
+                  color: "var(--text-dim)",
+                  fontSize: 12,
+                  letterSpacing: "0.02em",
+                }}
+              >
+                조회 통계
+              </label>
+              {views && (
+                <div
+                  data-testid="views-total"
+                  style={{
+                    fontFamily: "var(--font-mono)",
+                    fontSize: 13,
+                    color: "var(--accent)",
+                  }}
+                >
+                  총 {views.total}
+                </div>
+              )}
+            </div>
+            {viewsError ? (
+              <div style={{ color: "#ff8a8a", fontSize: 12 }}>{viewsError}</div>
+            ) : views ? (
+              <ViewsChart byDay={views.byDay} />
+            ) : (
+              <div style={{ color: "var(--text-dim)", fontSize: 12 }}>
+                불러오는 중...
+              </div>
+            )}
+            <div style={{ display: "flex", gap: 8 }}>
+              <button
+                className="btn-ghost"
+                onClick={() => void exportViews("csv")}
+                disabled={exportBusy}
+                style={{ padding: "8px 14px", fontSize: 12 }}
+              >
+                CSV 내보내기
+              </button>
+              <button
+                className="btn-ghost"
+                onClick={() => void exportViews("json")}
+                disabled={exportBusy}
+                style={{ padding: "8px 14px", fontSize: 12 }}
+              >
+                JSON 내보내기
               </button>
             </div>
           </div>
