@@ -1,4 +1,4 @@
-import type { Deck, Group } from "./types";
+import type { Deck, Group, PublicDeck } from "./types";
 
 export function createApi(baseUrl: string, getToken: () => string) {
   const auth = () => ({ Authorization: `Bearer ${getToken()}`, "Content-Type": "application/json" });
@@ -62,9 +62,29 @@ export function createApi(baseUrl: string, getToken: () => string) {
     async hardDelete(id: string) {
       return j(await fetch(`${baseUrl}/api/decks/${id}?hard=true`, { method: "DELETE", headers: auth() }));
     },
+    async share(id: string): Promise<{ token: string; url: string }> {
+      return j(await fetch(`${baseUrl}/api/decks/${id}/share`, { method: "PUT", headers: auth() }));
+    },
+    async unshare(id: string) {
+      return j(await fetch(`${baseUrl}/api/decks/${id}/share`, { method: "DELETE", headers: auth() }));
+    },
+    async republish(id: string) {
+      return j(await fetch(`${baseUrl}/api/decks/${id}/share/republish`, { method: "POST", headers: auth() }));
+    },
+    async downloadUrl(id: string, format: "html" | "pdf", version?: number): Promise<{ downloadUrl: string }> {
+      const q = new URLSearchParams({ format });
+      if (version != null) q.set("version", String(version));
+      return j(await fetch(`${baseUrl}/api/decks/${id}/download?${q}`, { headers: auth() }));
+    },
     async uploadFile(url: string, file: Blob) {
       const r = await fetch(url, { method: "PUT", headers: { "Content-Type": "text/html" }, body: file });
       if (!r.ok) throw new Error(`upload ${r.status}`);
     },
   };
+}
+
+export async function fetchPublic(baseUrl: string, token: string): Promise<PublicDeck> {
+  const r = await fetch(`${baseUrl}/api/public/${token}`);
+  if (!r.ok) throw new Error(`public ${r.status}`);
+  return r.json();
 }

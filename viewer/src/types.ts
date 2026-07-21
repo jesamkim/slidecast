@@ -7,6 +7,7 @@ export interface Version {
   sizeBytes: number;
   slideCount?: number;
   url?: string;
+  pdfKey: string | null;
 }
 export interface Deck {
   deckId: string;
@@ -19,8 +20,13 @@ export interface Deck {
   updatedAt: string;
   group: string | null;
   alias: string | null;
+  publicToken: string | null;
 }
 export interface Group {
   groupId: string;
   name: string;
+}
+export interface PublicDeck {
+  title: string;
+  htmlUrl: string;
 }
