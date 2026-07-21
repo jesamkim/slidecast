@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { fetchPublic } from "../api";
+import { NavOverlay } from "./NavOverlay";
 import type { PublicDeck } from "../types";
 
 type State =
@@ -10,6 +11,7 @@ type State =
 
 export function PublicPage({ token, baseUrl }: { token: string; baseUrl: string }) {
   const [state, setState] = useState<State>({ kind: "loading" });
+  const iframeRef = useRef<HTMLIFrameElement>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -122,11 +124,13 @@ export function PublicPage({ token, baseUrl }: { token: string; baseUrl: string 
         stays uniform with Player.
       */}
       <iframe
+        ref={iframeRef}
         title="deck"
         src={deck.htmlUrl}
         sandbox="allow-scripts"
         style={{ width: "100%", height: "100%", border: "none", background: "#000" }}
       />
+      <NavOverlay iframeRef={iframeRef} />
     </div>
   );
 }
