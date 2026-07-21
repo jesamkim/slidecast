@@ -107,6 +107,28 @@ def group_pk(group_id: str) -> str:
     return f"GROUP#{group_id}"
 
 
+def alias_pk(alias: str) -> str:
+    return f"ALIAS#{alias}"
+
+
+def new_alias_reservation(alias: str, deck_id: str, now_iso: str) -> dict:
+    """Reservation item that OWNS an alias. Uniqueness is enforced by a
+    conditional PutItem (attribute_not_exists(deckId)) in the repo.
+
+    Deliberately does NOT carry an `alias` attribute so the item stays OUT
+    of the byAlias GSI; resolve continues to find the owning deck (which
+    still carries `alias`). The reservation is looked up by primary key
+    only (ALIAS#{alias}).
+    """
+    return {
+        "deckId": alias_pk(alias),
+        "type": "alias",
+        "reservedAlias": alias,
+        "ownerDeckId": deck_id,
+        "createdAt": now_iso,
+    }
+
+
 def new_group_item(group_id: str, name: str, now_iso: str) -> dict:
     return {
         "deckId": group_pk(group_id),
