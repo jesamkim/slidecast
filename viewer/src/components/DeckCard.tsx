@@ -12,6 +12,8 @@ export function DeckCard({
   groups,
   onMoveGroup,
   onSetAlias,
+  onShare,
+  onDownload,
 }: {
   deck: Deck;
   onPlay: () => void;
@@ -22,6 +24,8 @@ export function DeckCard({
   groups?: Group[];
   onMoveGroup?: (groupId: string | null) => void | Promise<void>;
   onSetAlias?: (alias: string | null) => void | Promise<void>;
+  onShare?: () => void;
+  onDownload?: (format: "html" | "pdf") => void | Promise<void>;
 }) {
   const [hover, setHover] = useState(false);
   const [editingAlias, setEditingAlias] = useState(false);
@@ -34,6 +38,8 @@ export function DeckCard({
   const cur = deck.versions.find((v) => v.n === deck.currentVersion);
   const alias = deck.alias ?? null;
   const group = deck.group ?? null;
+  const publicToken = deck.publicToken ?? null;
+  const curPdfKey = cur?.pdfKey ?? null;
 
   const submitAlias = async () => {
     if (!onSetAlias) return;
@@ -163,6 +169,29 @@ export function DeckCard({
                 }}
               />
             </div>
+          </div>
+        )}
+        {publicToken && (
+          <div
+            style={{
+              position: "absolute",
+              top: 10,
+              right: 10,
+              padding: "3px 9px",
+              borderRadius: 999,
+              fontFamily: "var(--font-mono)",
+              fontSize: 11,
+              fontWeight: 600,
+              letterSpacing: "0.02em",
+              color: "var(--accent)",
+              background: "rgba(10,10,18,0.6)",
+              border: "1px solid var(--accent)",
+              backdropFilter: "blur(10px)",
+              WebkitBackdropFilter: "blur(10px)",
+            }}
+            title="공개 링크가 활성화됨"
+          >
+            공개
           </div>
         )}
         {alias && (
@@ -355,6 +384,41 @@ export function DeckCard({
           <button className="btn-ghost" onClick={onVersions} style={{ padding: "9px 14px", fontSize: 13 }}>
             버전
           </button>
+          {!archived && onShare && (
+            <button
+              className="btn-ghost"
+              onClick={onShare}
+              style={{ padding: "9px 14px", fontSize: 13 }}
+            >
+              공유
+            </button>
+          )}
+          {!archived && onDownload && (
+            <>
+              <button
+                className="btn-ghost"
+                onClick={() => void onDownload("html")}
+                style={{ padding: "9px 14px", fontSize: 13 }}
+                title="HTML 다운로드"
+              >
+                HTML
+              </button>
+              <button
+                className="btn-ghost"
+                onClick={() => void onDownload("pdf")}
+                disabled={!curPdfKey}
+                style={{
+                  padding: "9px 14px",
+                  fontSize: 13,
+                  opacity: curPdfKey ? 1 : 0.5,
+                  cursor: curPdfKey ? "pointer" : "not-allowed",
+                }}
+                title={curPdfKey ? "PDF 다운로드" : "PDF 생성 중"}
+              >
+                PDF
+              </button>
+            </>
+          )}
           {archived && onRestore && (
             <button
               className="btn-ghost"

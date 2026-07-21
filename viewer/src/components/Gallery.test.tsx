@@ -7,6 +7,10 @@ const makeApi = (decks: any[], overrides: Record<string, any> = {}) =>
     listDecks: vi.fn().mockResolvedValue(decks),
     listGroups: vi.fn().mockResolvedValue([]),
     restore: vi.fn().mockResolvedValue({}),
+    share: vi.fn().mockResolvedValue({ token: "TOK", url: "/p/TOK" }),
+    unshare: vi.fn().mockResolvedValue({}),
+    republish: vi.fn().mockResolvedValue({ token: "TOK2", url: "/p/TOK2" }),
+    downloadUrl: vi.fn().mockResolvedValue({ downloadUrl: "https://cdn/f.html" }),
     ...overrides,
   }) as any;
 
@@ -17,12 +21,13 @@ const alpha = {
   status: "active",
   currentVersion: 1,
   versions: [
-    { n: 1, createdAt: "t", thumbnailKey: "thumbnails/a/v1.png", sizeBytes: 1 },
+    { n: 1, createdAt: "t", thumbnailKey: "thumbnails/a/v1.png", sizeBytes: 1, pdfKey: null },
   ],
   createdAt: "t",
   updatedAt: "t",
   group: null,
   alias: null,
+  publicToken: null,
 };
 
 describe("Gallery", () => {
@@ -85,6 +90,57 @@ describe("Gallery", () => {
     expect(imgs.some((i) => (i.getAttribute("src") ?? "").includes("null"))).toBe(false);
     // The placeholder copy is shown instead.
     expect(screen.getByText("생성 중...")).toBeTruthy();
+  });
+
+  it("opens share modal, calls api.share and shows the public link", async () => {
+    const api = makeApi([alpha]);
+    render(<Gallery api={api} onLogout={() => {}} />);
+    await waitFor(() => expect(screen.getByText("Alpha")).toBeTruthy());
+
+    fireEvent.click(screen.getByRole("button", { name: "공유" }));
+    // Modal shows "공유하기" primary button since no token yet.
+    const shareBtn = await screen.findByRole("button", { name: "공유하기" });
+    fireEvent.click(shareBtn);
+
+    await waitFor(() => expect(api.share).toHaveBeenCalledWith("a"));
+    // After share resolves, a readonly link input appears with /p/TOK.
+    const link = await screen.findByDisplayValue(/\/p\/TOK$/);
+    expect(link).toBeTruthy();
+    expect((link as HTMLInputElement).readOnly).toBe(true);
+  });
+
+  it("shows a public badge for decks with a publicToken", async () => {
+    const pub = { ...alpha, deckId: "p", title: "Public Deck", publicToken: "TOK" };
+    const api = makeApi([pub]);
+    render(<Gallery api={api} onLogout={() => {}} />);
+    await waitFor(() => expect(screen.getByText("Public Deck")).toBeTruthy());
+    expect(screen.getByText("공개")).toBeTruthy();
+  });
+
+  it("HTML download calls api.downloadUrl and opens the returned url", async () => {
+    const api = makeApi([alpha]);
+    // Spy on anchor click since JSDOM/happy-dom won't navigate.
+    const clickSpy = vi
+      .spyOn(HTMLAnchorElement.prototype, "click")
+      .mockImplementation(() => {});
+    render(<Gallery api={api} onLogout={() => {}} />);
+    await waitFor(() => expect(screen.getByText("Alpha")).toBeTruthy());
+
+    fireEvent.click(screen.getByRole("button", { name: "HTML" }));
+    await waitFor(() =>
+      expect(api.downloadUrl).toHaveBeenCalledWith("a", "html", undefined),
+    );
+    expect(clickSpy).toHaveBeenCalled();
+    clickSpy.mockRestore();
+  });
+
+  it("PDF button is disabled when the current version has no pdfKey", async () => {
+    const api = makeApi([alpha]);
+    render(<Gallery api={api} onLogout={() => {}} />);
+    await waitFor(() => expect(screen.getByText("Alpha")).toBeTruthy());
+    const pdfBtn = screen.getByRole("button", { name: "PDF" }) as HTMLButtonElement;
+    expect(pdfBtn.disabled).toBe(true);
+    expect(pdfBtn.title).toBe("PDF 생성 중");
   });
 
   it("renders group sidebar and matches alias in search", async () => {

@@ -3,6 +3,7 @@ import { makeAuth, resolvePendingAlias, PENDING_ALIAS_KEY, type CognitoConfig } 
 import { createApi } from "./api";
 import { Gallery } from "./components/Gallery";
 import { Player } from "./components/Player";
+import { PublicPage } from "./components/PublicPage";
 import type { Deck } from "./types";
 
 // Config injected at build time from CDK outputs (see scripts/deploy-viewer.sh).
@@ -22,6 +23,14 @@ const auth = makeAuth(cfg);
 // Same-tab assumption: sessionStorage survives the Cognito redirect within the
 // same browser tab, which matches the per-tab token store in auth.ts.
 const initialAlias = resolvePendingAlias(window.location.pathname, window.sessionStorage);
+
+// Detect the public viewer path /p/{token}. Public pages must render before the
+// auth gate — they are the logged-out viewer surface.
+function detectPublicToken(pathname: string): string | null {
+  const m = pathname.match(/^\/p\/([A-Za-z0-9_-]+)\/?$/);
+  return m ? m[1] : null;
+}
+const initialPublicToken = detectPublicToken(window.location.pathname);
 
 export function App() {
   const [ready, setReady] = useState(false);
@@ -67,6 +76,10 @@ export function App() {
       }
     })();
   }, [ready, authed]);
+
+  if (initialPublicToken) {
+    return <PublicPage token={initialPublicToken} baseUrl="" />;
+  }
 
   if (!ready) {
     return (

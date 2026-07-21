@@ -5,10 +5,12 @@ export function VersionMenu({
   deck,
   onRollback,
   onPlayVersion,
+  onDownload,
 }: {
   deck: Deck;
   onRollback: (n: number) => void;
   onPlayVersion: (n: number) => void;
+  onDownload?: (n: number, format: "html" | "pdf") => void | Promise<void>;
 }) {
   return (
     <div style={{ display: "grid", gap: 10, minWidth: 480 }}>
@@ -95,6 +97,32 @@ export function VersionMenu({
               >
                 재생
               </button>
+              {onDownload && (
+                <>
+                  <button
+                    className="btn-ghost"
+                    onClick={() => void onDownload(v.n, "html")}
+                    style={{ padding: "8px 12px", fontSize: 12 }}
+                    title="HTML 다운로드"
+                  >
+                    HTML
+                  </button>
+                  <button
+                    className="btn-ghost"
+                    onClick={() => void onDownload(v.n, "pdf")}
+                    disabled={!(v.pdfKey ?? null)}
+                    style={{
+                      padding: "8px 12px",
+                      fontSize: 12,
+                      opacity: v.pdfKey ? 1 : 0.5,
+                      cursor: v.pdfKey ? "pointer" : "not-allowed",
+                    }}
+                    title={v.pdfKey ? "PDF 다운로드" : "PDF 생성 중"}
+                  >
+                    PDF
+                  </button>
+                </>
+              )}
               {!isCurrent && (
                 <button
                   onClick={() => onRollback(v.n)}

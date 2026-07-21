@@ -6,6 +6,7 @@ import { Player } from "./Player";
 import { VersionMenu } from "./VersionMenu";
 import { UploadZone } from "./UploadZone";
 import { GroupSidebar } from "./GroupSidebar";
+import { ShareModal } from "./ShareModal";
 
 type Api = ReturnType<typeof createApi>;
 
@@ -21,6 +22,7 @@ export function Gallery({ api, onLogout }: GalleryProps) {
   const [query, setQuery] = useState("");
   const [playing, setPlaying] = useState<string | null>(null);
   const [versionsOf, setVersionsOf] = useState<Deck | null>(null);
+  const [sharingOf, setSharingOf] = useState<Deck | null>(null);
   const [loading, setLoading] = useState(true);
   const [selectedGroup, setSelectedGroup] = useState<string | null>(null);
 
@@ -104,6 +106,19 @@ export function Gallery({ api, onLogout }: GalleryProps) {
   const moveGroup = async (deckId: string, groupId: string | null) => {
     await api.setGroup(deckId, groupId);
     void reload();
+  };
+
+  const download = async (deckId: string, format: "html" | "pdf", version?: number) => {
+    try {
+      const { downloadUrl } = await api.downloadUrl(deckId, format, version);
+      const a = document.createElement("a");
+      a.href = downloadUrl;
+      a.rel = "noopener";
+      a.click();
+    } catch (err) {
+      console.error("download failed:", err);
+      alert("다운로드 실패");
+    }
   };
 
   const setAlias = async (deckId: string, alias: string | null) => {
@@ -223,6 +238,10 @@ export function Gallery({ api, onLogout }: GalleryProps) {
                   onSetAlias={
                     archived ? undefined : (a) => setAlias(d.deckId, a)
                   }
+                  onShare={archived ? undefined : () => setSharingOf(d)}
+                  onDownload={
+                    archived ? undefined : (fmt) => download(d.deckId, fmt)
+                  }
                   onRestore={
                     archived
                       ? async () => {
@@ -284,9 +303,26 @@ export function Gallery({ api, onLogout }: GalleryProps) {
                 setPlaying(`/slides/${versionsOf.deckId}/v${n}/index.html`);
                 setVersionsOf(null);
               }}
+              onDownload={(n, fmt) => download(versionsOf.deckId, fmt, n)}
             />
           </div>
         </div>
+      )}
+
+      {sharingOf && (
+        <ShareModal
+          deck={sharingOf}
+          api={api}
+          onClose={() => setSharingOf(null)}
+          onChanged={async () => {
+            await reload();
+            // Refresh the modal's underlying deck reference so republish etc.
+            // reflect the newest publicToken.
+            const fresh = (await api.listDecks(status, selectedGroup === null ? undefined : selectedGroup))
+              .find((d) => d.deckId === sharingOf.deckId);
+            if (fresh) setSharingOf(fresh);
+          }}
+        />
       )}
 
       {playing && <Player src={playing} onClose={() => setPlaying(null)} />}
