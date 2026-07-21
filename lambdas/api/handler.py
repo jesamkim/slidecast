@@ -120,8 +120,12 @@ def handler(event, context=None):
         if not item:
             return _resp(404, {"error": "not found"})
         raw = _body(event).get("alias")
+        now = now_iso()
         if raw is None:
-            repo.put(dm.set_alias(item, None, now_iso()))
+            old = item.get("alias")
+            if old:
+                repo.release_alias(old)
+            repo.put(dm.set_alias(item, None, now))
             return _resp(200, {"ok": True})
         # slugify("") returns the "deck" fallback, so an empty/whitespace
         # alias would silently be accepted. Reject up front.
@@ -130,10 +134,20 @@ def handler(event, context=None):
         alias = slugify(raw)
         if not dm.is_valid_alias(alias):
             return _resp(400, {"error": "invalid or reserved alias"})
-        existing = repo.query_by_alias(alias)
-        if existing and existing["deckId"] != item["deckId"]:
+        old = item.get("alias")
+        if old == alias:
+            return _resp(200, {"ok": True})
+        # Atomic reservation is the source of truth for uniqueness.
+        if not repo.reserve_alias(alias, item["deckId"], now):
             return _resp(409, {"error": "alias taken"})
-        repo.put(dm.set_alias(item, alias, now_iso()))
+        # Deck.put immediately after so the reservation and the deck's
+        # `alias` attribute stay consistent. On the rare failure between
+        # these two writes the reservation would be dangling until the
+        # next set/clear/hard-delete of this deck — acceptable for a
+        # personal tool.
+        if old:
+            repo.release_alias(old)
+        repo.put(dm.set_alias(item, alias, now))
         return _resp(200, {"ok": True})
 
     if method == "GET" and path == "/api/decks":
@@ -208,6 +222,9 @@ def handler(event, context=None):
                 keys = [{"Key": o["Key"]} for o in listed.get("Contents", [])]
                 if keys:
                     s3.delete_objects(Bucket=_bucket(), Delete={"Objects": keys})
+            alias = item.get("alias")
+            if alias:
+                repo.release_alias(alias)
             repo.delete(deck_id)
         else:
             repo.put(dm.set_status(item, "archived", now_iso()))

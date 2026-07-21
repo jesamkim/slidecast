@@ -51,22 +51,22 @@ def append(html_path, table=DEFAULT_TABLE, bucket=None, dynamodb=None, s3=None,
     deck_id = slugify(html_path)
     n = resolve_target(repo, deck_id)
 
-    # Validate the alias BEFORE any S3 upload. Otherwise a rejected alias
-    # would leave orphan slide/thumbnail objects in the bucket (and trigger
-    # the thumbnail S3 event). Uploads are the expensive/side-effecting
-    # step, so gate them on validation success.
+    # Validate + atomically reserve the alias BEFORE any S3 upload.
+    # Otherwise a rejected alias would leave orphan slide/thumbnail
+    # objects in the bucket (and trigger the thumbnail S3 event).
     aslug = None
+    prior_alias = None
     if alias is not None:
         if not isinstance(alias, str) or not alias.strip():
             raise SystemExit("empty alias")
         aslug = slugify(alias)
         if not dm.is_valid_alias(aslug):
             raise SystemExit(f"invalid or reserved alias: {alias}")
-        existing = repo.query_by_alias(aslug)
-        if existing and existing.get("deckId") != deck_id:
-            raise SystemExit(
-                f"alias '{aslug}' already taken by deck '{existing.get('deckId')}'"
-            )
+        existing = repo.get(deck_id)
+        prior_alias = existing.get("alias") if existing else None
+        if prior_alias != aslug:
+            if not repo.reserve_alias(aslug, deck_id, now_iso()):
+                raise SystemExit(f"alias '{aslug}' already taken")
 
     html = open(html_path, "rb").read()
 
@@ -92,6 +92,8 @@ def append(html_path, table=DEFAULT_TABLE, bucket=None, dynamodb=None, s3=None,
         item = dm.set_group(item, gid, now_iso())
 
     if aslug is not None:
+        if prior_alias and prior_alias != aslug:
+            repo.release_alias(prior_alias)
         item = dm.set_alias(item, aslug, now_iso())
 
     repo.put(item)
@@ -141,6 +143,9 @@ def hard_delete(deck_id, table=DEFAULT_TABLE, bucket=None, dynamodb=None, s3=Non
         keys = [{"Key": o["Key"]} for o in listed.get("Contents", [])]
         if keys:
             s3.delete_objects(Bucket=bucket, Delete={"Objects": keys})
+    item = repo.get(deck_id)
+    if item and item.get("alias"):
+        repo.release_alias(item["alias"])
     repo.delete(deck_id)
 
 
