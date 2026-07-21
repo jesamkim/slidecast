@@ -1,15 +1,18 @@
 # Slidecast
 
 html-slide로 만든 self-contained HTML 슬라이드 덱을 누적/수정(버전)/삭제하고,
-갤러리에서 선택해 풀스크린으로 재생하는 개인용 서버리스 웹 뷰어.
+갤러리에서 선택해 풀스크린으로 재생하는 서버리스 웹 뷰어. 그룹 관리, 짧은 URL
+alias, public 공유(`/p/{token}`), HTML/PDF 다운로드를 지원한다.
 
-- 배포: AWS 계정 `123456789012`, 리전 `us-east-1`, 자격증명 프로파일 `profile2`
-- 라이브 URL: https://d2o39fnd1gcpgv.cloudfront.net
+- 배포 대상: AWS (리전 `us-east-1`), CloudFront + Cognito + API Gateway + Lambda + DynamoDB + S3
+- 스택: React + Vite + TypeScript(뷰어), Python Lambda(백엔드), AWS CDK(IaC)
+
+![Slidecast 갤러리](assets/screenshot-gallery.png)
 
 ## 아키텍처
 
 ```
-개발자 로컬 ──(local skill: profile2 자격증명)──┐
+개발자 로컬 ──(local skill: AWS 자격증명)──┐
                                               ▼ 직접 PUT + PutItem
 사용자 브라우저                          S3(slides) + DynamoDB(SlideDecks)
    │                                          ▲
@@ -39,7 +42,7 @@ Cognito User Pool (셀프가입 차단, 관리자 사용자 1개) + Hosted UI
 | `lambdas/thumbnail/` | S3 이벤트 → Chromium 헤드리스 첫 화면 캡처 (컨테이너 이미지 Lambda) |
 | `shared/deck_model.py` | 불변 덱/버전 데이터 모델 (API·썸네일·스킬 공용) |
 | `viewer/` | React + Vite + TS SPA (다크 시네마틱) |
-| `skill/slidecast-append/` | 로컬 스킬 — profile2로 직접 S3+DDB 업로드/버전/삭제 |
+| `skill/slidecast-append/` | Claude Code 로컬 스킬 — AWS 자격증명으로 직접 S3+DDB 업로드/버전/삭제 |
 
 ## 데이터 모델 (DynamoDB `SlideDecks`)
 
@@ -87,7 +90,7 @@ Cognito User Pool (셀프가입 차단, 관리자 사용자 1개) + Hosted UI
 
 ## 배포 순서
 
-전제: 배포 호스트에 Docker 필요(썸네일 Lambda가 컨테이너 이미지). profile2 CDK bootstrap 완료.
+전제: 배포 호스트에 Docker 필요(썸네일 Lambda가 컨테이너 이미지). AWS 프로파일 CDK bootstrap 완료.
 
 ```bash
 # 1) 인프라 배포 (S3, CloudFront, Cognito, API, Lambda, DDB)
@@ -104,12 +107,16 @@ Cognito User Pool (셀프가입 차단, 관리자 사용자 1개) + Hosted UI
 `scripts/deploy-viewer.sh`는 CloudFront 도메인을 알아야 하는 Cognito callback/logout
 URL을 배포 후 자동으로 설정한다(합성 시엔 localhost placeholder).
 
-## 로컬 스킬 사용 (slidecast-append)
+## Claude Code 로컬 스킬 (slidecast-append)
 
-html-slide로 만든 덱을 갤러리에 바로 반영한다.
+이 스킬은 [Claude Code](https://claude.com/claude-code)의 로컬 스킬로, 웹 UI 대신
+개발 환경에서 html-slide로 만든 덱을 갤러리에 바로 반영한다(API 인증을 거치지 않고
+AWS 자격증명으로 S3+DynamoDB에 직접 쓴다 — 본인 개발 워크플로우 전용). Claude Code가
+`skill/slidecast-append/`를 스킬로 인식해 자연어로 호출할 수 있으며, 아래처럼 직접 실행할
+수도 있다.
 
 ```bash
-export AWS_PROFILE=profile2 AWS_REGION=us-east-1
+export AWS_PROFILE=<your-profile> AWS_REGION=us-east-1
 export BUCKET_NAME=<cdk-outputs의 BucketName>
 python3 -m playwright install chromium   # 최초 1회 (로컬 썸네일 캡처용)
 
