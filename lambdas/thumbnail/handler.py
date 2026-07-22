@@ -72,16 +72,23 @@ def capture_png(html_bytes: bytes) -> bytes:
 
 
 def capture_pdf(html_bytes: bytes) -> bytes:
-    """Render each slide as an on-screen screenshot and assemble a PDF.
+    """Export the deck to PDF via Chromium print-to-PDF.
 
-    Uses screen media (not print emulation) so the exported PDF matches the
-    browser layout exactly, with step-build animations shown in their final
-    (fully revealed) state. Falls back to Chromium print-to-PDF for decks
-    that don't use the html-slide .slide/#stage structure.
+    Uses print emulation honoring the deck's `@page { size: 1920px 1080px }`
+    so each slide lands on its own page, AND emits real, selectable text with
+    clickable `<a>` link annotations (source citations, resource lists, the
+    demo link). This replaced an earlier screenshot-assembly path, which
+    produced flat PNG pages with no links; text/links matter more than
+    pixel-exact animation state, and fonts are embedded (base64), so the CJK
+    tofu that first motivated the screenshot path no longer occurs.
+
+    Before printing we force every slide `.active` and reveal all `data-step`
+    elements to their final state, so step-built content isn't hidden in the
+    printout. The deck's `@media print` block already lays slides out one per
+    page and hides the animated aurora background.
     """
-    import tempfile, io
+    import tempfile
     from playwright.sync_api import sync_playwright
-    from PIL import Image
 
     with tempfile.NamedTemporaryFile(suffix=".html", delete=False) as f:
         f.write(html_bytes)
@@ -108,44 +115,25 @@ def capture_pdf(html_bytes: bytes) -> bytes:
                     pass
                 page.wait_for_timeout(1000)
 
-                n = page.evaluate("() => document.querySelectorAll('.slide').length")
-                stage = page.query_selector("#stage")
-                if not n or stage is None:
-                    # Fallback: non-html-slide deck -> print-to-PDF honoring its @page.
-                    return page.pdf(print_background=True, prefer_css_page_size=True)
-
-                # Neutralize the on-screen scale transform so #stage is captured 1:1 at 1920x1080.
+                # For html-slide decks, reveal every slide + every step so the
+                # print (which lays out all .slide blocks via @media print) shows
+                # fully-built content. No-op for decks without .slide/[data-step].
                 page.evaluate("""() => {
-                    const st = document.getElementById('stage');
-                    if (st) { st.style.transform = 'none'; st.style.margin = '0'; }
-                    const vp = document.getElementById('viewport');
-                    if (vp) { vp.style.display = 'block'; }
+                    document.querySelectorAll('.slide').forEach(s => s.classList.add('active'));
+                    document.querySelectorAll('[data-step]').forEach(el => {
+                        el.classList.add('revealed');
+                        el.style.opacity = '1';
+                        el.style.transform = 'none';
+                        el.style.visibility = 'visible';
+                    });
                 }""")
+                page.wait_for_timeout(300)
 
-                shots = []
-                for i in range(n):
-                    page.evaluate("""(idx) => {
-                        const slides = [...document.querySelectorAll('.slide')];
-                        slides.forEach((s, k) => s.classList.toggle('active', k === idx));
-                        // reveal every step in the active slide (final animation state)
-                        slides[idx].querySelectorAll('[data-step]').forEach(el => {
-                            el.classList.add('revealed');
-                            el.style.opacity = '1';
-                            el.style.transform = 'none';
-                            el.style.visibility = 'visible';
-                        });
-                    }""", i)
-                    page.wait_for_timeout(300)  # let layout/reveal settle
-                    st = page.query_selector("#stage")
-                    shots.append(st.screenshot(type="png"))
+                # print-to-PDF honors the deck's @page size (1920x1080) and
+                # emits selectable text + clickable link annotations.
+                return page.pdf(print_background=True, prefer_css_page_size=True)
             finally:
                 browser.close()
-
-        # Assemble PNGs into a single PDF, one 1920x1080 page per slide.
-        images = [Image.open(io.BytesIO(b)).convert("RGB") for b in shots]
-        out = io.BytesIO()
-        images[0].save(out, format="PDF", save_all=True, append_images=images[1:], resolution=96.0)
-        return out.getvalue()
     finally:
         try:
             os.unlink(html_path)
