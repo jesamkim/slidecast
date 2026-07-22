@@ -6,6 +6,12 @@ export function createApi(
   onUnauthorized?: () => void,
 ) {
   const auth = () => ({ Authorization: `Bearer ${getToken()}`, "Content-Type": "application/json" });
+  // GET requests must not be served from the browser HTTP cache: after a
+  // delete/upload we re-fetch the list and need the fresh server state.
+  // Safari caches authenticated GETs heuristically (Chrome less so), which
+  // otherwise left the gallery showing a just-deleted deck until a manual
+  // reload. `cache: "no-store"` bypasses it uniformly.
+  const getInit = (): RequestInit => ({ headers: auth(), cache: "no-store" });
   const j = async (r: Response) => {
     if (!r.ok) {
       // A 401/403 on an authenticated call means the id_token expired (or was
@@ -20,11 +26,11 @@ export function createApi(
     async listDecks(status = "active", group?: string): Promise<Deck[]> {
       const q = new URLSearchParams({ status });
       if (group) q.set("group", group);
-      const r = await fetch(`${baseUrl}/api/decks?${q}`, { headers: auth() });
+      const r = await fetch(`${baseUrl}/api/decks?${q}`, getInit());
       return (await j(r)).decks;
     },
     async listGroups(): Promise<Group[]> {
-      return (await j(await fetch(`${baseUrl}/api/groups`, { headers: auth() }))).groups;
+      return (await j(await fetch(`${baseUrl}/api/groups`, getInit()))).groups;
     },
     async createGroup(name: string) {
       return j(await fetch(`${baseUrl}/api/groups`, {
@@ -45,10 +51,10 @@ export function createApi(
       }));
     },
     async resolve(alias: string): Promise<Deck> {
-      return j(await fetch(`${baseUrl}/api/resolve/${alias}`, { headers: auth() }));
+      return j(await fetch(`${baseUrl}/api/resolve/${alias}`, getInit()));
     },
     async getDeck(id: string): Promise<Deck> {
-      return j(await fetch(`${baseUrl}/api/decks/${id}`, { headers: auth() }));
+      return j(await fetch(`${baseUrl}/api/decks/${id}`, getInit()));
     },
     async createUpload(
       filename: string,
@@ -91,13 +97,13 @@ export function createApi(
     async downloadUrl(id: string, format: "html" | "pdf", version?: number): Promise<{ downloadUrl: string }> {
       const q = new URLSearchParams({ format });
       if (version != null) q.set("version", String(version));
-      return j(await fetch(`${baseUrl}/api/decks/${id}/download?${q}`, { headers: auth() }));
+      return j(await fetch(`${baseUrl}/api/decks/${id}/download?${q}`, getInit()));
     },
     async getViews(id: string): Promise<ViewStats> {
-      return j(await fetch(`${baseUrl}/api/decks/${id}/views`, { headers: auth() }));
+      return j(await fetch(`${baseUrl}/api/decks/${id}/views`, getInit()));
     },
     async downloadViews(id: string, format: "csv" | "json") {
-      const r = await fetch(`${baseUrl}/api/decks/${id}/views/export?format=${format}`, { headers: auth() });
+      const r = await fetch(`${baseUrl}/api/decks/${id}/views/export?format=${format}`, getInit());
       if (!r.ok) throw new Error(`export ${r.status}`);
       const blob = await r.blob();
       const url = URL.createObjectURL(blob);
