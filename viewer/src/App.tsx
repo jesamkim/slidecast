@@ -4,6 +4,7 @@ import { createApi } from "./api";
 import { Gallery } from "./components/Gallery";
 import { Player } from "./components/Player";
 import { PublicPage } from "./components/PublicPage";
+import { Footer } from "./components/Footer";
 import type { Deck } from "./types";
 
 // Config injected at build time from CDK outputs (see scripts/deploy-viewer.sh).
@@ -91,27 +92,32 @@ export function App() {
 
   if (!authed) {
     return (
-      <div style={{ display: "grid", placeItems: "center", height: "100%", padding: 24 }}>
-        <div style={{ textAlign: "center", maxWidth: 520 }}>
-          <div className="h1 grad-text">Slidecast</div>
-          <p style={{ color: "var(--text-dim)", marginTop: 16, fontSize: 18, letterSpacing: "-0.005em" }}>
-            HTML 슬라이드 시네마
-          </p>
-          <button
-            className="btn-primary"
-            style={{ marginTop: 36 }}
-            onClick={() => {
-              // Stash the deep-link alias so the app can resume /s/{alias}
-              // after Cognito bounces the user back to "/". Same-tab only,
-              // matching the sessionStorage token store in auth.ts.
-              if (initialAlias) {
-                window.sessionStorage.setItem(PENDING_ALIAS_KEY, initialAlias);
-              }
-              auth.login();
-            }}
-          >
-            로그인
-          </button>
+      <div style={{ position: "relative", height: "100%" }}>
+        <div style={{ display: "grid", placeItems: "center", height: "100%", padding: 24 }}>
+          <div style={{ textAlign: "center", maxWidth: 520 }}>
+            <div className="h1 grad-text">Slidecast</div>
+            <p style={{ color: "var(--text-dim)", marginTop: 16, fontSize: 18, letterSpacing: "-0.005em" }}>
+              HTML 슬라이드 시네마
+            </p>
+            <button
+              className="btn-primary"
+              style={{ marginTop: 36 }}
+              onClick={() => {
+                // Stash the deep-link alias so the app can resume /s/{alias}
+                // after Cognito bounces the user back to "/". Same-tab only,
+                // matching the sessionStorage token store in auth.ts.
+                if (initialAlias) {
+                  window.sessionStorage.setItem(PENDING_ALIAS_KEY, initialAlias);
+                }
+                auth.login();
+              }}
+            >
+              로그인
+            </button>
+          </div>
+        </div>
+        <div style={{ position: "absolute", left: 0, right: 0, bottom: 0 }}>
+          <Footer />
         </div>
       </div>
     );

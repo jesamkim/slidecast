@@ -7,6 +7,7 @@ import { VersionMenu } from "./VersionMenu";
 import { UploadZone } from "./UploadZone";
 import { GroupSidebar } from "./GroupSidebar";
 import { ShareModal } from "./ShareModal";
+import { Footer } from "./Footer";
 
 type Api = ReturnType<typeof createApi>;
 
@@ -342,6 +343,8 @@ export function Gallery({ api, onLogout }: GalleryProps) {
       )}
 
       {playing && <Player src={playing} onClose={() => setPlaying(null)} />}
+
+      <Footer />
     </div>
   );
 }
