@@ -22,7 +22,7 @@ describe("PublicPage", () => {
     expect(iframe?.getAttribute("src")).toBe(
       "https://cdn.example.com/slides/a/v1/index.html",
     );
-    expect(iframe?.getAttribute("sandbox")).toBe("allow-scripts");
+    expect(iframe?.getAttribute("sandbox")).toBe("allow-scripts allow-popups allow-popups-to-escape-sandbox");
   });
 
   it("renders a not-found message when fetchPublic 404s", async () => {

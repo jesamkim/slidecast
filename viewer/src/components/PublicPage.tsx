@@ -118,16 +118,19 @@ export function PublicPage({ token, baseUrl }: { token: string; baseUrl: string 
       </div>
       {/*
         Public viewer: same sandbox posture as the authenticated Player.
-        We grant `allow-scripts` so decks can run inline nav/animation, but
-        deliberately omit `allow-same-origin` so decks can't reach parent
-        storage or DOM. Public pages carry no auth secrets, but the invariant
-        stays uniform with Player.
+        We grant `allow-scripts` so decks can run inline nav/animation, and
+        `allow-popups`/`allow-popups-to-escape-sandbox` so a deck's external
+        links (source citations, resource lists) can open in a new tab —
+        without them a sandboxed deck's target="_blank" clicks do nothing.
+        We still deliberately omit `allow-same-origin` so decks can't reach
+        parent storage or DOM. Public pages carry no auth secrets, but the
+        invariant stays uniform with Player.
       */}
       <iframe
         ref={iframeRef}
         title="deck"
         src={deck.htmlUrl}
-        sandbox="allow-scripts"
+        sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox"
         style={{ width: "100%", height: "100%", border: "none", background: "#000" }}
       />
       <NavOverlay iframeRef={iframeRef} />

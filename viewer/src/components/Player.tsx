@@ -54,12 +54,16 @@ export function Player({ src, onClose }: { src: string; onClose: () => void }) {
         into an opaque origin — scripts still run, but they can't touch the
         viewer's storage or auth state. The ESC-to-close handler is on the
         parent document, so keyboard close still works.
+        We also grant `allow-popups`/`allow-popups-to-escape-sandbox` so a
+        deck's external links (source citations, embedded video links) can
+        open in a new tab; without them target="_blank" clicks are silently
+        blocked. This does not weaken the same-origin isolation above.
       */}
       <iframe
         ref={iframeRef}
         title="deck"
         src={src}
-        sandbox="allow-scripts"
+        sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox"
         style={{ width: "100%", height: "100%", border: "none", background: "#000" }}
       />
       <NavOverlay iframeRef={iframeRef} />
