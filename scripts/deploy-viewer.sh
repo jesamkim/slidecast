@@ -75,25 +75,45 @@ else
   echo "note: DistributionId output not found; skipping invalidation. CloudFront default TTL applies."
 fi
 
-# Point the Cognito app client at the real CloudFront domain. The CDK
-# stack synthesizes the client with a localhost placeholder (Cognito
-# requires at least one callback URL when the code grant flow is enabled),
-# and this step is the source of truth for the deployed values. Idempotent:
-# rerunning simply reasserts the same URLs and OAuth settings.
-CALLBACK="https://$DIST_DOMAIN/"
-LOGOUT="https://$DIST_DOMAIN/"
-echo "Updating Cognito app client $CLIENT callback/logout URLs to $CALLBACK"
+# Ensure the CloudFront domain is a registered Cognito callback/logout URL.
+# The CDK stack synthesizes the client with a localhost placeholder (Cognito
+# requires at least one callback URL when the code grant flow is enabled).
+#
+# update-user-pool-client REPLACES the URL lists wholesale, so we must UNION
+# the CloudFront URL with whatever is already registered — otherwise every
+# redeploy wipes any custom domain that was added out of band, breaking its
+# Cognito login. We read the current lists, add the CloudFront URL if
+# missing, and reassert the union.
+CF_URL="https://$DIST_DOMAIN/"
+existing=$(aws cognito-idp describe-user-pool-client \
+  --user-pool-id "$POOL" --client-id "$CLIENT" \
+  --query "UserPoolClient.[CallbackURLs, LogoutURLs]" --output json)
+
+# Build newline-separated union lists (existing ∪ CloudFront URL), deduped.
+mapfile -t CALLBACKS < <(python3 -c "
+import json,sys
+cb,lo = json.loads('''$existing''')
+u = list(dict.fromkeys((cb or []) + ['$CF_URL']))
+print('\n'.join(u))
+")
+mapfile -t LOGOUTS < <(python3 -c "
+import json,sys
+cb,lo = json.loads('''$existing''')
+u = list(dict.fromkeys((lo or []) + ['$CF_URL']))
+print('\n'.join(u))
+")
+echo "Ensuring Cognito app client $CLIENT includes $CF_URL (preserving existing URLs)"
 aws cognito-idp update-user-pool-client \
   --user-pool-id "$POOL" \
   --client-id "$CLIENT" \
-  --callback-urls "$CALLBACK" \
-  --logout-urls "$LOGOUT" \
+  --callback-urls "${CALLBACKS[@]}" \
+  --logout-urls "${LOGOUTS[@]}" \
   --allowed-o-auth-flows code \
   --allowed-o-auth-scopes openid email \
   --allowed-o-auth-flows-user-pool-client \
   --supported-identity-providers COGNITO \
   --explicit-auth-flows ALLOW_USER_SRP_AUTH ALLOW_REFRESH_TOKEN_AUTH \
   >/dev/null
-echo "Cognito app client updated."
+echo "Cognito app client updated (callback URLs: ${CALLBACKS[*]})."
 
 echo "Deploy complete: https://$DIST_DOMAIN"
