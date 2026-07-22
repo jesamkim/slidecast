@@ -1,9 +1,19 @@
 import type { Deck, Group, PublicDeck, ViewStats } from "./types";
 
-export function createApi(baseUrl: string, getToken: () => string) {
+export function createApi(
+  baseUrl: string,
+  getToken: () => string,
+  onUnauthorized?: () => void,
+) {
   const auth = () => ({ Authorization: `Bearer ${getToken()}`, "Content-Type": "application/json" });
   const j = async (r: Response) => {
-    if (!r.ok) throw new Error(`api ${r.status}`);
+    if (!r.ok) {
+      // A 401/403 on an authenticated call means the id_token expired (or was
+      // rejected). Surface it distinctly so the UI can prompt re-login instead
+      // of showing a generic failure.
+      if (r.status === 401 || r.status === 403) onUnauthorized?.();
+      throw new Error(`api ${r.status}`);
+    }
     return r.json();
   };
   return {

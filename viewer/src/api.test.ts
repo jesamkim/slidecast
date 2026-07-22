@@ -105,4 +105,20 @@ describe("api client", () => {
     // No init or no headers means no Authorization
     expect(opts === undefined || !opts.headers || !opts.headers.Authorization).toBe(true);
   });
+
+  it("calls onUnauthorized and throws on a 401 (expired session)", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 401 }));
+    const onUnauthorized = vi.fn();
+    const api = createApi("", () => "TOKEN", onUnauthorized);
+    await expect(api.deleteGroup("yonsei")).rejects.toThrow("api 401");
+    expect(onUnauthorized).toHaveBeenCalledTimes(1);
+  });
+
+  it("does NOT call onUnauthorized on a non-auth error (500)", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 500 }));
+    const onUnauthorized = vi.fn();
+    const api = createApi("", () => "TOKEN", onUnauthorized);
+    await expect(api.deleteGroup("yonsei")).rejects.toThrow("api 500");
+    expect(onUnauthorized).not.toHaveBeenCalled();
+  });
 });

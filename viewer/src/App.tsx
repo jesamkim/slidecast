@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { makeAuth, resolvePendingAlias, PENDING_ALIAS_KEY, type CognitoConfig } from "./auth";
 import { createApi } from "./api";
 import { Gallery } from "./components/Gallery";
@@ -39,6 +39,16 @@ export function App() {
   const [aliasDeck, setAliasDeck] = useState<Deck | null>(null);
   const [aliasError, setAliasError] = useState<string | null>(null);
   const [aliasLoading, setAliasLoading] = useState(false);
+  const reloginPrompted = useRef(false);
+
+  // Called when an authenticated API call returns 401/403 (expired id_token).
+  // Prompt once, then send the user back through Cognito login.
+  const handleUnauthorized = () => {
+    if (reloginPrompted.current) return;
+    reloginPrompted.current = true;
+    alert("세션이 만료되었습니다. 다시 로그인해 주세요.");
+    auth.login();
+  };
 
   useEffect(() => {
     (async () => {
@@ -63,7 +73,7 @@ export function App() {
 
   useEffect(() => {
     if (!ready || !authed || !initialAlias) return;
-    const api = createApi(apiBase, () => auth.getToken());
+    const api = createApi(apiBase, () => auth.getToken(), handleUnauthorized);
     setAliasLoading(true);
     (async () => {
       try {
@@ -123,7 +133,7 @@ export function App() {
     );
   }
 
-  const api = createApi(apiBase, () => auth.getToken());
+  const api = createApi(apiBase, () => auth.getToken(), handleUnauthorized);
 
   if (initialAlias) {
     if (aliasLoading) {

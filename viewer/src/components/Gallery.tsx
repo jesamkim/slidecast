@@ -9,6 +9,12 @@ import { GroupSidebar } from "./GroupSidebar";
 import { ShareModal } from "./ShareModal";
 import { Footer } from "./Footer";
 
+// A 401/403 is an expired session; App's onUnauthorized handler already
+// prompts re-login, so per-action handlers skip their own error alert to
+// avoid a confusing double message.
+const isAuthError = (err: unknown) =>
+  err instanceof Error && (err.message.includes("401") || err.message.includes("403"));
+
 type Api = ReturnType<typeof createApi>;
 
 export interface GalleryProps {
@@ -90,7 +96,7 @@ export function Gallery({ api, onLogout }: GalleryProps) {
       await reloadGroups();
     } catch (err) {
       console.error("createGroup failed:", err);
-      alert("그룹 생성 실패");
+      if (!isAuthError(err)) alert("그룹 생성 실패");
     }
   };
 
@@ -102,7 +108,7 @@ export function Gallery({ api, onLogout }: GalleryProps) {
       void reload();
     } catch (err) {
       console.error("deleteGroup failed:", err);
-      alert("그룹 삭제 실패");
+      if (!isAuthError(err)) alert("그룹 삭제 실패");
     }
   };
 
@@ -123,7 +129,7 @@ export function Gallery({ api, onLogout }: GalleryProps) {
       a.remove();
     } catch (err) {
       console.error("download failed:", err);
-      alert("다운로드 실패");
+      if (!isAuthError(err)) alert("다운로드 실패");
     }
   };
 
