@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-export AWS_PROFILE=profile2
-export AWS_REGION=us-east-1
+# Uses the caller's AWS credentials (set AWS_PROFILE to target a profile,
+# or rely on the default chain). Region defaults to us-east-1.
+export AWS_REGION="${AWS_REGION:-us-east-1}"
 
 EMAIL="${1:?usage: create-user.sh <email>}"
 

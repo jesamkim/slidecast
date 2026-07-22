@@ -67,9 +67,13 @@ def process(dry_run: bool) -> int:
     import boto3  # imported lazily so --help works without AWS deps
 
     bucket = read_bucket_name()
+    # Honor the caller's AWS credentials: use AWS_PROFILE if set, otherwise
+    # fall back to the default credential chain (profile_name=None).
     session = boto3.Session(
-        profile_name=os.environ.get("AWS_PROFILE", "profile2"),
-        region_name=os.environ.get("AWS_DEFAULT_REGION", "us-east-1"),
+        profile_name=os.environ.get("AWS_PROFILE"),
+        region_name=os.environ.get("AWS_DEFAULT_REGION")
+        or os.environ.get("AWS_REGION")
+        or "us-east-1",
     )
     s3 = session.client("s3")
 

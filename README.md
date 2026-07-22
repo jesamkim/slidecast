@@ -40,16 +40,13 @@
 | `viewer/` | React + Vite + TS SPA (다크 시네마틱) |
 | `skill/slidecast-append/` | Claude Code 로컬 스킬 — AWS 자격증명으로 직접 S3+DDB 업로드/버전/삭제 |
 
-## 데이터 모델 (DynamoDB `SlideDecks`)
+## 데이터 모델
 
-- 덱 아이템: PK `deckId` (파일명 슬러그), `type="deck"`
-  - 속성: `title, tags[], group(null=미분류), alias(null), publicToken(null), status(active|archived), currentVersion, versions[], createdAt, updatedAt`
-  - `versions[]` 항목: `{n, createdAt, thumbnailKey, sizeBytes, slideCount, pdfKey}`
-- 그룹 메타 아이템: PK `GROUP#{groupId}`, `type="group"`, `{groupId, name, createdAt}` (같은 테이블 공존)
-- alias 예약 아이템: PK `ALIAS#{alias}` (원자적 유일성). public 예약 아이템: PK `PUBLIC#{token}`, `{ownerDeckId, publicVersion}` — 조건부 쓰기로 원자 예약, GSI 미참여.
-- GSI `byUpdatedAt` (PK `status`, SK `updatedAt`) — 갤러리 최신순
-- GSI `byAlias` (PK `alias`, sparse) — alias 유일성/리졸브. alias 없는 아이템은 미포함.
-- 참고: `put` 시 값이 null인 키는 제거해 저장한다(sparse GSI 요건). 읽을 때는 항상 `.get()`/`?? null`.
+DynamoDB 단일 테이블(`SlideDecks`)에 덱·그룹·alias/public 예약을 함께 담는다.
+
+- **덱**: 제목·태그·그룹·alias·공유 토큰·상태(active/archived)·버전 이력을 하나의 아이템으로 관리.
+- **그룹 / alias / public 토큰**: 별도 예약 아이템으로 원자적 유일성을 보장(조건부 쓰기).
+- **GSI 2개**: 갤러리 최신순 정렬, alias 유일성·리졸브(sparse).
 
 ## 그룹 · alias · 짧은 URL
 
@@ -74,39 +71,21 @@
 
 ## 조회 트래킹
 
-- **집계**: 공개 링크(`GET /api/public/{token}`)를 열 때마다 `PUBLIC#{token}` 아이템의
-  `viewCount`(총계)와 `viewsByDay`(UTC `YYYY-MM-DD`별 맵)를 단일 UpdateItem으로 원자 증가.
-  집계 실패는 격리되어(try/except) 실패해도 공개 재생은 항상 성공한다. 재발행 시 조회수 보존,
-  공개 해제(unshare) 후 재공유는 새 토큰이라 0부터 시작.
-- **통계 조회**: `GET /api/decks/{id}/views`(JWT) → `{total, byDay:[{date,count}]}`. 공유 모달이
-  총 조회수와 일별 막대그래프(라이브러리 없는 인라인 SVG, 막대 폭 자동 조정)를 렌더. 갤러리
-  카드에는 공개 덱만 조회수 배지(목록 응답에 `viewCount` 포함 — 카드별 추가 호출 없음).
-- **내보내기**: `GET /api/decks/{id}/views/export?format=csv|json`(JWT)이 파일 바디를 직접 반환
-  (`Content-Disposition: attachment`). 공유 모달의 "CSV / JSON 내보내기" 버튼으로 다운로드.
-  조회 통계·export는 JWT 라우트 전용 — 공개 뷰어에는 노출되지 않는다(공개 응답은 `{title,htmlUrl}`만).
-- **알려진 한계**: 슬랙·카카오톡 링크 프리뷰·검색 크롤러 등 **봇 조회도 포함**
-  집계된다(순수 사람 조회수 아님). 세션 기반 중복 제거 없음. 시각은 모두 UTC 기준.
+- 공개 링크를 열 때마다 총 조회수와 일별 조회수를 원자적으로 집계한다(집계 실패해도 재생은 정상).
+- 공유 모달에서 총 조회수와 일별 막대그래프를 보고, CSV/JSON으로 내보낼 수 있다. 갤러리 카드에는
+  공개 덱의 조회수 배지가 표시된다. 조회 통계는 로그인 사용자만 볼 수 있다(공개 뷰어엔 미노출).
+- **알려진 한계**: 링크 프리뷰·검색 크롤러 등 봇 조회도 포함된다(순수 사람 조회수 아님).
+  세션 기반 중복 제거는 없으며 시각은 UTC 기준.
 
 ## 재생 하단 네비게이션
 
-- 전체화면 재생(로그인 `/s/{alias}` · 공개 `/p/{token}`) 중 화면 하단에 **이전/다음 버튼과
-  `현재 / 전체` 페이지 표시**가 오버레이된다. 하단 콘텐츠를 가리지 않도록 은은하게 항상 떠 있고
-  (반투명), 마우스를 올리면 진해진다. 기존 키보드(←/→/Space)·스와이프·ESC 동작은 그대로다.
-- **postMessage 브리지**: 슬라이드는 iframe에 `sandbox="allow-scripts"`로만 격리되며
-  (`allow-same-origin` 미부여 — 토큰·DOM 유출 차단), 부모 뷰어와 슬라이드는 오직 postMessage로
-  통신한다. 덱은 `{type:"slidecast-state", cur, total}`를 방송하고
-  `{type:"slidecast-nav", action:"next"|"prev"|"ping"}`를 받는다. 부모는 `event.source`로만
-  검증한다(origin은 opaque라 미사용).
-- **신규 업로드**: 업로드 시 슬라이드 HTML에 브리지가 없으면 키보드 이벤트 기반 shim 브리지를
-  자동 주입한다(각 슬라이드가 `.slide` 클래스인 표준 구조를 쓰는 덱 대상, 멱등). 이미 브리지가
-  있는 덱은 그대로 둔다.
-- **기존 덱 소급 적용**: `scripts/patch-decks-nav.py`가 S3의 `slides/**`와 `public/{token}/**`
-  HTML에 동일한 shim 브리지를 주입한다(멱등, `--dry-run` 지원, strict UTF-8 디코드,
-  업로드 전 무결성 가드, `no-cache` 헤더 설정). shim은 `.slide` 클래스 변경을 MutationObserver로
-  감지해 재방송하므로, 페이지 전환에 `history.replaceState`를 쓰는(따라서 `hashchange`가 안 뜨는)
-  덱에서도 페이지 표시가 갱신된다.
-- **폴백**: 표준 구조가 아니거나 postMessage 핸드셰이크에 응답하지 않는 덱은 오버레이를 렌더하지
-  않는다(오작동 버튼 없음).
+- 전체화면 재생 중 화면 하단에 이전/다음 버튼과 `현재 / 전체` 페이지 표시가 오버레이된다.
+  하단 콘텐츠를 가리지 않도록 반투명으로 항상 떠 있고, 마우스를 올리면 진해진다. 기존
+  키보드·스와이프·ESC 동작은 그대로다.
+- 슬라이드는 샌드박스 iframe에서 실행되므로, 뷰어와 슬라이드는 `postMessage`로만 통신한다
+  (부모 오리진·토큰 접근 차단은 유지). 표준 구조(`.slide`)를 쓰는 덱은 업로드 시 또는
+  `scripts/patch-decks-nav.py`로 이 연동이 자동 주입되며, 응답하지 않는 덱은 오버레이를
+  렌더하지 않아 오작동이 없다.
 
 ## API (요약)
 
@@ -183,10 +162,14 @@ cd viewer && npx vitest run        # 뷰어 유닛 테스트
 cd viewer && npx tsc --noEmit      # 타입체크
 ```
 
-## 보안 노트 (개인용 도구 기준)
+## 보안 노트
 
-- S3 `BLOCK_ALL` + OAC + TLS 강제, Cognito self sign-up 비활성, 모든 `/api` JWT 보호.
-- 슬라이드는 CloudFront에서 URL로 접근 가능(개인 명시적 URL 전제). 업로드 HTML은
-  `sandbox="allow-scripts"`(same-origin 제외) iframe에서 실행 — 부모 오리진/토큰 접근 차단.
-- 인증 토큰은 sessionStorage(탭 세션 한정) 보관.
-- 팀 공유·공개 서비스로 확장 시: `/slides/*` signed URL/cookie, 슬라이드 별도 오리진 격리 재검토.
+- S3는 완전 비공개(`BLOCK_ALL`) + OAC + TLS 강제, Cognito 셀프 가입 비활성, 모든 `/api`는 JWT 보호.
+- 업로드 HTML은 `sandbox="allow-scripts"`(same-origin 제외) iframe에서 실행 — 부모 오리진·토큰 접근 차단.
+- 인증 토큰은 sessionStorage(탭 세션 한정)에 보관.
+- 소규모/단일 운영자 사용을 전제로 설계됐다. 슬라이드는 CloudFront URL로 접근 가능하므로,
+  팀 공유·대규모 공개 서비스로 확장할 때는 `/slides/*` signed URL·오리진 격리 등을 추가 검토한다.
+
+## 라이선스
+
+[MIT License](LICENSE) © 2026 Jesam Kim

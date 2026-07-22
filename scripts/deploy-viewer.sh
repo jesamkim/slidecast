@@ -9,8 +9,9 @@ set -euo pipefail
 # --delete only touches the viewer's own static assets and can never wipe
 # uploaded decks, shared public links, or pre-generated PDFs.
 
-export AWS_PROFILE=profile2
-export AWS_REGION=us-east-1
+# Uses the caller's AWS credentials (set AWS_PROFILE to target a profile,
+# or rely on the default chain). Region defaults to us-east-1.
+export AWS_REGION="${AWS_REGION:-us-east-1}"
 
 cd "$(dirname "$0")/.."
 

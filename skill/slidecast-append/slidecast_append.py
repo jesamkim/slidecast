@@ -1,5 +1,6 @@
-"""Append/update/delete a self-contained HTML deck into Slidecast using
-profile2 credentials directly (no API auth needed)."""
+"""Append/update/delete a self-contained HTML deck into Slidecast by writing
+to S3 + DynamoDB directly with the caller's AWS credentials (no API auth).
+Set AWS_PROFILE to target a profile, or rely on the default credential chain."""
 import argparse
 import os
 import secrets
