@@ -43,7 +43,7 @@ RUN dnf install -y \
 
 # Install Python deps. Pin playwright to a version whose bundled chromium
 # resolves cleanly against AL2023.
-RUN pip install --no-cache-dir boto3==1.34.162 playwright==1.47.0 Pillow==10.4.0
+RUN pip install --no-cache-dir boto3==1.34.162 playwright==1.47.0 Pillow==10.4.0 pypdf==5.1.0
 
 # Install the chromium browser bundle. We do NOT use `--with-deps` because
 # that path shells out to apt/apt-get, which does not exist on AL2023 — we

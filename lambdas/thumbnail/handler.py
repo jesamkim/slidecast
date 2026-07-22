@@ -71,24 +71,73 @@ def capture_png(html_bytes: bytes) -> bytes:
             pass
 
 
-def capture_pdf(html_bytes: bytes) -> bytes:
-    """Export the deck to PDF via Chromium print-to-PDF.
+def _overlay_link_annotations(image_pdf: bytes, per_page_links: list) -> bytes:
+    """Add clickable URI link annotations onto a flat image PDF.
 
-    Uses print emulation honoring the deck's `@page { size: 1920px 1080px }`
-    so each slide lands on its own page, AND emits real, selectable text with
-    clickable `<a>` link annotations (source citations, resource lists, the
-    demo link). This replaced an earlier screenshot-assembly path, which
-    produced flat PNG pages with no links; text/links matter more than
-    pixel-exact animation state, and fonts are embedded (base64), so the CJK
-    tofu that first motivated the screenshot path no longer occurs.
-
-    Before printing we force every slide `.active` and reveal all `data-step`
-    elements to their final state, so step-built content isn't hidden in the
-    printout. The deck's `@media print` block already lays slides out one per
-    page and hides the animated aurora background.
+    `per_page_links[i]` is a list of {href,x,y,w,h} in #stage pixel space
+    (1920x1080, origin top-left). We map those onto each PDF page's box,
+    flipping to PDF's bottom-left origin. This gives the screenshot-assembled
+    PDF (which is pixel-identical to the on-screen deck) real clickable links
+    without changing a single pixel of the render.
     """
-    import tempfile
+    import io
+    from pypdf import PdfReader, PdfWriter
+    from pypdf.generic import (ArrayObject, NumberObject, DictionaryObject,
+                               NameObject, TextStringObject)
+
+    STAGE_W, STAGE_H = 1920, 1080
+    reader = PdfReader(io.BytesIO(image_pdf))
+    writer = PdfWriter()
+    for pi, page in enumerate(reader.pages):
+        pw = float(page.mediabox.width)
+        ph = float(page.mediabox.height)
+        sx, sy = pw / STAGE_W, ph / STAGE_H
+        for lk in (per_page_links[pi] if pi < len(per_page_links) else []):
+            x1 = lk["x"] * sx
+            x2 = (lk["x"] + lk["w"]) * sx
+            y1 = ph - (lk["y"] + lk["h"]) * sy  # flip to PDF origin (bottom-left)
+            y2 = ph - lk["y"] * sy
+            annot = DictionaryObject({
+                NameObject("/Type"): NameObject("/Annot"),
+                NameObject("/Subtype"): NameObject("/Link"),
+                NameObject("/Rect"): ArrayObject(
+                    [NumberObject(x1), NumberObject(y1), NumberObject(x2), NumberObject(y2)]),
+                NameObject("/Border"): ArrayObject(
+                    [NumberObject(0), NumberObject(0), NumberObject(0)]),
+                NameObject("/A"): DictionaryObject({
+                    NameObject("/S"): NameObject("/URI"),
+                    NameObject("/URI"): TextStringObject(lk["href"]),
+                }),
+            })
+            ref = writer._add_object(annot)
+            if "/Annots" in page:
+                page[NameObject("/Annots")].append(ref)
+            else:
+                page[NameObject("/Annots")] = ArrayObject([ref])
+        writer.add_page(page)
+    out = io.BytesIO()
+    writer.write(out)
+    return out.getvalue()
+
+
+def capture_pdf(html_bytes: bytes) -> bytes:
+    """Render each slide as an on-screen screenshot, assemble a PDF, then
+    overlay clickable link annotations at each `<a href>`'s position.
+
+    The screenshot assembly makes the PDF pixel-identical to the on-screen
+    deck (the html-slide engine relies on a CSS `scale()` fit that Chromium's
+    print emulation lays out differently, shifting objects and clipping
+    nowrap labels — so print-to-PDF is not an option). Screenshots alone
+    produce flat pages with no links; we restore clickable source/resource/
+    demo links by reading each anchor's rect (in #stage pixel space) and
+    writing matching PDF Link annotations via `_overlay_link_annotations`.
+    Selectable text is the one thing this can't give (pages are images).
+    Falls back to Chromium print-to-PDF for decks without the
+    html-slide .slide/#stage structure.
+    """
+    import tempfile, io
     from playwright.sync_api import sync_playwright
+    from PIL import Image
 
     with tempfile.NamedTemporaryFile(suffix=".html", delete=False) as f:
         f.write(html_bytes)
@@ -115,25 +164,55 @@ def capture_pdf(html_bytes: bytes) -> bytes:
                     pass
                 page.wait_for_timeout(1000)
 
-                # For html-slide decks, reveal every slide + every step so the
-                # print (which lays out all .slide blocks via @media print) shows
-                # fully-built content. No-op for decks without .slide/[data-step].
-                page.evaluate("""() => {
-                    document.querySelectorAll('.slide').forEach(s => s.classList.add('active'));
-                    document.querySelectorAll('[data-step]').forEach(el => {
-                        el.classList.add('revealed');
-                        el.style.opacity = '1';
-                        el.style.transform = 'none';
-                        el.style.visibility = 'visible';
-                    });
-                }""")
-                page.wait_for_timeout(300)
+                n = page.evaluate("() => document.querySelectorAll('.slide').length")
+                stage = page.query_selector("#stage")
+                if not n or stage is None:
+                    # Fallback: non-html-slide deck -> print-to-PDF honoring its @page.
+                    return page.pdf(print_background=True, prefer_css_page_size=True)
 
-                # print-to-PDF honors the deck's @page size (1920x1080) and
-                # emits selectable text + clickable link annotations.
-                return page.pdf(print_background=True, prefer_css_page_size=True)
+                # Neutralize the on-screen scale transform so #stage is captured 1:1 at 1920x1080.
+                page.evaluate("""() => {
+                    const st = document.getElementById('stage');
+                    if (st) { st.style.transform = 'none'; st.style.margin = '0'; }
+                    const vp = document.getElementById('viewport');
+                    if (vp) { vp.style.display = 'block'; }
+                }""")
+
+                shots = []
+                per_page_links = []
+                for i in range(n):
+                    page.evaluate("""(idx) => {
+                        const slides = [...document.querySelectorAll('.slide')];
+                        slides.forEach((s, k) => s.classList.toggle('active', k === idx));
+                        // reveal every step in the active slide (final animation state)
+                        slides[idx].querySelectorAll('[data-step]').forEach(el => {
+                            el.classList.add('revealed');
+                            el.style.opacity = '1';
+                            el.style.transform = 'none';
+                            el.style.visibility = 'visible';
+                        });
+                    }""", i)
+                    page.wait_for_timeout(300)  # let layout/reveal settle
+                    st = page.query_selector("#stage")
+                    shots.append(st.screenshot(type="png"))
+                    # Collect this slide's <a href> rects relative to #stage (pixel space).
+                    per_page_links.append(page.evaluate("""() => {
+                        const st = document.getElementById('stage').getBoundingClientRect();
+                        return [...document.querySelectorAll('.slide.active a[href]')]
+                            .map(a => { const r = a.getBoundingClientRect();
+                                return { href: a.href, x: r.left - st.left, y: r.top - st.top,
+                                         w: r.width, h: r.height }; })
+                            .filter(o => o.w > 0 && o.h > 0);
+                    }"""))
             finally:
                 browser.close()
+
+        # Assemble PNGs into a single PDF, one 1920x1080 page per slide.
+        images = [Image.open(io.BytesIO(b)).convert("RGB") for b in shots]
+        out = io.BytesIO()
+        images[0].save(out, format="PDF", save_all=True, append_images=images[1:], resolution=96.0)
+        # Overlay clickable link annotations at each anchor's position.
+        return _overlay_link_annotations(out.getvalue(), per_page_links)
     finally:
         try:
             os.unlink(html_path)
