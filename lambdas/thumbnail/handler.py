@@ -82,8 +82,8 @@ def _overlay_link_annotations(image_pdf: bytes, per_page_links: list) -> bytes:
     """
     import io
     from pypdf import PdfReader, PdfWriter
-    from pypdf.generic import (ArrayObject, NumberObject, DictionaryObject,
-                               NameObject, TextStringObject)
+    from pypdf.generic import (ArrayObject, FloatObject, NumberObject,
+                               DictionaryObject, NameObject, TextStringObject)
 
     STAGE_W, STAGE_H = 1920, 1080
     reader = PdfReader(io.BytesIO(image_pdf))
@@ -93,20 +93,30 @@ def _overlay_link_annotations(image_pdf: bytes, per_page_links: list) -> bytes:
         ph = float(page.mediabox.height)
         sx, sy = pw / STAGE_W, ph / STAGE_H
         for lk in (per_page_links[pi] if pi < len(per_page_links) else []):
+            href = lk["href"]
+            # Only external http(s) links become URI annotations. An in-deck
+            # fragment link (#s10) resolves against the temporary file:// doc,
+            # so emitting it as a URI would point at a deleted /tmp path — skip
+            # those rather than create a broken link. (This deck has none.)
+            if not href.startswith(("http://", "https://")):
+                continue
             x1 = lk["x"] * sx
             x2 = (lk["x"] + lk["w"]) * sx
             y1 = ph - (lk["y"] + lk["h"]) * sy  # flip to PDF origin (bottom-left)
             y2 = ph - lk["y"] * sy
+            # FloatObject: a 1920x1080 stage maps to a 1440x810pt page, so
+            # coordinates are fractional; NumberObject would int()-truncate
+            # them and shift/shrink the hitbox by up to a point.
             annot = DictionaryObject({
                 NameObject("/Type"): NameObject("/Annot"),
                 NameObject("/Subtype"): NameObject("/Link"),
                 NameObject("/Rect"): ArrayObject(
-                    [NumberObject(x1), NumberObject(y1), NumberObject(x2), NumberObject(y2)]),
+                    [FloatObject(x1), FloatObject(y1), FloatObject(x2), FloatObject(y2)]),
                 NameObject("/Border"): ArrayObject(
                     [NumberObject(0), NumberObject(0), NumberObject(0)]),
                 NameObject("/A"): DictionaryObject({
                     NameObject("/S"): NameObject("/URI"),
-                    NameObject("/URI"): TextStringObject(lk["href"]),
+                    NameObject("/URI"): TextStringObject(href),
                 }),
             })
             ref = writer._add_object(annot)
@@ -171,11 +181,18 @@ def capture_pdf(html_bytes: bytes) -> bytes:
                     return page.pdf(print_background=True, prefer_css_page_size=True)
 
                 # Neutralize the on-screen scale transform so #stage is captured 1:1 at 1920x1080.
+                # Also hide the progress bar and slide counter: we drive slides by toggling
+                # .active directly (not the engine's show()), so those controls would otherwise
+                # freeze at "1 / N" on every page. The deck's @media print hides them too.
                 page.evaluate("""() => {
                     const st = document.getElementById('stage');
                     if (st) { st.style.transform = 'none'; st.style.margin = '0'; }
                     const vp = document.getElementById('viewport');
                     if (vp) { vp.style.display = 'block'; }
+                    ['progress', 'counter'].forEach(id => {
+                        const el = document.getElementById(id);
+                        if (el) el.style.display = 'none';
+                    });
                 }""")
 
                 shots = []
