@@ -1,8 +1,16 @@
-# Slidecast
+<p align="center">
+  <img src="assets/logo.png" alt="Slidecast" width="96" height="96" />
+</p>
 
-self-contained HTML 슬라이드 덱을 누적/수정(버전)/삭제하고,
-갤러리에서 선택해 풀스크린으로 재생하는 서버리스 웹 뷰어. 그룹 관리, 짧은 URL
-alias, public 공유(`/p/{token}`), HTML/PDF 다운로드를 지원한다.
+<h1 align="center">Slidecast</h1>
+
+<p align="center">
+  self-contained HTML 슬라이드 덱을 누적·버전 관리하고, 갤러리에서 골라<br>
+  풀스크린으로 재생하는 <b>서버리스 웹 뷰어</b>
+</p>
+
+덱을 누적/수정(버전)/삭제하고, 갤러리에서 선택해 풀스크린으로 재생한다. 그룹 관리,
+짧은 URL alias, public 공유(`/p/{token}`), HTML/PDF 다운로드, 재생 하단 네비게이션을 지원한다.
 
 - 배포 대상: AWS (리전 `us-east-1`), CloudFront + Cognito + API Gateway + Lambda + DynamoDB + S3
 - 스택: React + Vite + TypeScript(뷰어), Python Lambda(백엔드), AWS CDK(IaC)
@@ -11,21 +19,9 @@ alias, public 공유(`/p/{token}`), HTML/PDF 다운로드를 지원한다.
 
 ## 아키텍처
 
-```
-개발자 로컬 ──(local skill: AWS 자격증명)──┐
-                                              ▼ 직접 PUT + PutItem
-사용자 브라우저                          S3(slides) + DynamoDB(SlideDecks)
-   │                                          ▲
-   ▼ HTTPS                                    │ (썸네일 캡처)
-CloudFront (단일 배포, OAC)          Thumbnail Lambda (container image, Chromium)
-   ├─ /            → S3 (React 뷰어 SPA)       ▲
-   ├─ /slides/*    → S3 (덱 .html, OAC 비공개)  │ S3 이벤트 트리거
-   ├─ /thumbnails/*→ S3 (썸네일 PNG)            │
-   └─ /api/*       → API Gateway (HTTP API)
-                       └─ Cognito JWT authorizer
-                            └─ API Lambda ─→ DynamoDB / S3 presign
-Cognito User Pool (셀프가입 차단, 관리자 사용자 1개) + Hosted UI
-```
+<p align="center">
+  <img src="assets/architecture.png" alt="Slidecast 아키텍처" width="100%" />
+</p>
 
 - ALB/퍼블릭 인바운드 없음. S3는 완전 프라이빗, CloudFront OAC로만 접근.
 - `/api`는 전부 Cognito JWT authorizer 뒤. 뷰어는 id_token을 Bearer로 전송.
