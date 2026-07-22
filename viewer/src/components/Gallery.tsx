@@ -267,20 +267,30 @@ export function Gallery({ api, onLogout }: GalleryProps) {
                   onRestore={
                     archived
                       ? async () => {
-                          await api.restore(d.deckId);
-                          void reload();
+                          try {
+                            await api.restore(d.deckId);
+                            await reload();
+                          } catch (err) {
+                            console.error("restore failed:", err);
+                            if (!isAuthError(err)) alert("복원 실패");
+                          }
                         }
                       : undefined
                   }
                   onDelete={async () => {
-                    if (archived) {
-                      if (!confirm(`${d.title}을(를) 영구 삭제할까요?`)) return;
-                      await api.hardDelete(d.deckId);
-                    } else {
-                      if (!confirm(`${d.title}을(를) 보관함으로 옮길까요?`)) return;
-                      await api.softDelete(d.deckId);
+                    try {
+                      if (archived) {
+                        if (!confirm(`${d.title}을(를) 영구 삭제할까요?`)) return;
+                        await api.hardDelete(d.deckId);
+                      } else {
+                        if (!confirm(`${d.title}을(를) 보관함으로 옮길까요?`)) return;
+                        await api.softDelete(d.deckId);
+                      }
+                      await reload();
+                    } catch (err) {
+                      console.error("delete failed:", err);
+                      if (!isAuthError(err)) alert("삭제 실패");
                     }
-                    void reload();
                   }}
                 />
               ))}
